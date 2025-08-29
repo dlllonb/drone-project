@@ -1,0 +1,1 @@
+this folder is for code related to the drone project but not for actually running the hardware. likely for data analysis things later.
