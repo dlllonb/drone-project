@@ -59,7 +59,7 @@ def main():
         ext = ".png"    # simple 8-bit PNG
 
     cam.set_image_type(img_type)
-    cam.set_roi_format(w, h, bin=1, image_type=img_type)
+    cam.set_roi_format(w, h, 1, img_type)
 
     # Controls
     cam.set_control_value(zwoasi.ASI_EXPOSURE, int(EXPOSURE_US))
