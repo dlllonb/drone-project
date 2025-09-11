@@ -7,15 +7,12 @@ RUN = True
 def _stop(*_):
     global RUN
     RUN = False
-
 signal.signal(signal.SIGINT, _stop)
 signal.signal(signal.SIGTERM, _stop)
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 LOG_DIR = os.path.join(BASE_DIR, "data", "gps")
-os.makedirs(LOG_DIR, exist_ok=True)
 
-# Unique file per run, named with date + time
 timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 log_path = os.path.join(LOG_DIR, f"gps_{timestamp}.jsonl")
 
