@@ -6,8 +6,8 @@ from pathlib import Path
 from datetime import datetime, timezone
 import numpy as np
 from PIL import Image
+import os
 import zwoasi
-
 
 EXPOSURE_US = 200_000 # microseconds
 GAIN = 100                 
@@ -15,7 +15,8 @@ IMAGE_TYPE = "RAW8" # or "RAW16"
 BANDWIDTH = 40              
 SLEEP_POLL = 0.01       
 
-# zwoasi.init('/usr/local/lib/zwo/libASICamera2.so')
+
+#zwoasi.init('/usr/local/lib/zwo/libASICamera2.so')
 zwoasi.init()
 
 RUN = True
