@@ -1,0 +1,34 @@
+Camera properties:
+Name: ZWO ASI178MC
+Camera ID: 0
+Width & Height: 3096 x 2080
+Color: Yes
+  Bayer pattern: 0
+  Pixel size: 2.4 microns
+  e-/ADU: 0.916
+  Bit depth: 14
+  Trigger cam: No
+
+Camera controls:
+  Property Gain: [0, 510] = 210 (set) - Gain
+  Property Exposure: [32, 2000000000] = 10000 (set) - Exposure Time(us)
+  Property WB_R: [1, 99] = 70 (set) - White balance: Red component
+  Property WB_B: [1, 99] = 90 (set) - White balance: Blue component
+  Property Offset: [0, 600] = 10 (set) - offset
+  Property BandWidth: [40, 100] = 50 (set) - The total data transfer rate percentage
+  Property Flip: [0, 3] = 0 (set) - Flip: 0->None 1->Horiz 2->Vert 3->Both
+  Property AutoExpMaxGain: [0, 510] = 255 (set) - Auto exposure maximum gain value
+  Property AutoExpMaxExpMS: [1, 60000] = 100 (set) - Auto exposure maximum exposure value(unit ms)
+  Property AutoExpTargetBrightness: [50, 160] = 100 (set) - Auto exposure target brightness value
+  Property HardwareBin: [0, 1] = 0 (set) - Is hardware bin2:0->No 1->Yes
+  Property HighSpeedMode: [0, 1] = 0 (set) - Is high speed mode:0->No 1->Yes
+  Property MonoBin: [0, 1] = 0 (set) - bin R G G B to one pixel for color camera, color will loss
+  Property Temperature: [-500, 1000] = 20 - Sensor temperature(degrees Celsius)
+  Property GPSSupport: [0, 1] = 0 - the camera has a GPS or not
+  Property GPSStartLine: [0, 2079] = 0 (set) - set start line number of getting GPS time(GPS camera only)
+  Property GPSEndLine: [0, 2079] = 0 (set) - set end line number of getting GPS time(GPS camera only)
+  Property RollingInterval: [0, 10000] = 0 - get the rolling interval of every line(rolling shutter GPS camera only)
+
+Exposure time: 0.5 seconds
+First 20 bytes (hexadecimal):
+0x69 0x65 0x6a 0x64 0x6a 0x69 0x6e 0x6a 0x6b 0x6c 0x6f 0x6f 0x70 0x6e 0x6e 0x6d 0x6e 0x6e 0x72 0x70 
