@@ -1,0 +1,5 @@
+#!/bin/sh
+pigs w 16 0
+pigs w 17 0
+pigs w 20 0
+pigs w 12 1
