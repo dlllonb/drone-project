@@ -1,0 +1,38 @@
+Pre-set up checklist
+-----------------------------------------------
+batteries are charged
+drone is charged
+
+
+DRONE SETUP
+-----------------------------------------------
+turn on the led
+turn on gps 
+pull up kstars and connect camera
+
+
+POLARIMETER SETUP
+-----------------------------------------------
+pull the gps data from the drone
+spin the motor
+pull up kstars and connect camera
+turn on gps
+
+
+1st STEP - data collectction
+-----------------------------------------------
+start encoder and timestamp
+start camera
+
+
+2nd STEP - analysis
+-----------------------------------------------
+use data from the drone gps to orient box for code analysis
+plot intensity vs position using camera data and encoder data
+
+
+3rd STEP - drone stuff
+-----------------------------------------------
+use both gps to find location 
+use beam splitter with red and green filters and overlay them on top of each other
+use astrometry to find location
