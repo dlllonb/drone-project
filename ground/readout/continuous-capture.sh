@@ -8,7 +8,7 @@ PROCESSED_DIR="$BASE_DIR/processed"
 mkdir -p "$RAW_DIR" "$PROCESSED_DIR"
 
 # Full path to the refactored capture binary
-CAPTURE_BIN="/home/declan/RPI/zwo/capture-exposure.out"
+CAPTURE_BIN="/home/declan/drone-project/ground/camera/capture-exposure.out"
 
 # Exposure parameters
 EXPOSURE_TIME=0.001  # in seconds (1 ms)

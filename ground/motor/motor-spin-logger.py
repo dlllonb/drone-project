@@ -1,7 +1,7 @@
 import subprocess
 import signal
 
-file_path = "/home/declan/RPI/"
+file_path = "/home/declan/drone-project/ground/"
 spin_rate = "250"
 
 def stop():
