@@ -7,7 +7,6 @@ RUN = True
 def _stop(*_):
     global RUN
     RUN = False
-
 signal.signal(signal.SIGINT, _stop)
 signal.signal(signal.SIGTERM, _stop)
 
@@ -45,19 +44,16 @@ def main():
                     r, p, y = sensor.getTaredOrientationAsEulerAngles()  # radians
                 except Exception:
                     r = p = y = None
-
                 try:
                     quat = sensor.getTaredOrientation()  # quaternion 
                     quat = list(quat) if quat is not None else None
                 except Exception:
                     quat = None
-
                 try:
                     acc = sensor.getPrimaryCorrectedAccelVec()  # m/s^2
                     acc = list(acc) if acc is not None else None
                 except Exception:
                     acc = None
-
                 try:
                     gyro = sensor.getCorrectedGyroVec()  # rad/s
                     gyro = list(gyro) if gyro is not None else None
