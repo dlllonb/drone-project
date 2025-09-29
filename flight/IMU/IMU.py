@@ -42,6 +42,7 @@ def main():
             while RUN:
                 try:
                     r, p, y = sensor.getTaredOrientationAsEulerAngles()  # radians
+                    print(r,p,y)
                 except Exception:
                     r = p = y = None
                 try:
