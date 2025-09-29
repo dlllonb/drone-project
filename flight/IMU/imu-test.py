@@ -6,7 +6,7 @@ try:
     # s.startStreaming()
     res = s.getTaredOrientationAsEulerAngles()
     print("Euler (tared):", res)
-    print(type(res))
-    print(len(res))
+    print(res.data)
+    print(res.data[1])
 finally:
     s.cleanup()
