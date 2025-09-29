@@ -4,6 +4,9 @@ try:
     s.tareWithCurrentOrientation()  # ok if this fails; leave it in
     # comment out streaming while testing
     # s.startStreaming()
-    print("Euler (tared):", s.getTaredOrientationAsEulerAngles())
+    res = s.getTaredOrientationAsEulerAngles()
+    print("Euler (tared):", res)
+    print(type(res))
+    print(len(res))
 finally:
     s.cleanup()
