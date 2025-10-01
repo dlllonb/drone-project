@@ -1,0 +1,2 @@
+This folder contains logs from running the triplelog.sh file, and should show where different sensors failed.
+Essentially just a debug protection. 
