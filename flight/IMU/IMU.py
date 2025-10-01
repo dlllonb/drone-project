@@ -19,6 +19,7 @@ log_path = os.path.join(LOG_DIR, f"imu_{timestamp}.jsonl")
 
 def main():
     sensor = ThreespaceSensor()  
+    print("Initialized Threespace IMU")
     try:
         sensor.tareWithCurrentOrientation()
     except Exception:
@@ -39,6 +40,7 @@ def main():
         }) + "\n")
 
         try:
+            print("Starting IMU data logging")
             while RUN:
                 try:
                     ea = (sensor.getTaredOrientationAsEulerAngles()).data # radians
@@ -87,6 +89,7 @@ def main():
     except Exception:
         pass
     sensor.cleanup()
+    print("Cleaned up IMU and exited")
 
 if __name__ == "__main__":
     main()

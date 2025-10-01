@@ -18,6 +18,7 @@ log_path = os.path.join(LOG_DIR, f"gps_{timestamp}.jsonl")
 
 def main():
     session = gps(mode=WATCH_ENABLE | WATCH_JSON)  
+    print("Initialized GPS sensor")
     with open(log_path, "w", buffering=1) as fp:   
         fp.write(json.dumps({
             "type":"gps_status",
@@ -26,6 +27,7 @@ def main():
             "ts":time.time()
         }) + "\n")
         try:
+            print("Starting GPS data logging")
             while RUN:
                 rep = session.next()
                 if rep.get("class") != "TPV":
@@ -43,6 +45,7 @@ def main():
                 fp.write(json.dumps(rec) + "\n")
         finally:
             fp.write(json.dumps({"type":"gps_status","event":"close","ts":time.time()}) + "\n")
+            print("Wrote end of GPS log file")
 
 if __name__ == "__main__":
     main()
