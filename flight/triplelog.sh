@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-set -m  # own process group
+set -m do  # own process group
 
 # --- logging setup ---
 LOGFILE="../data/logs/run_$(date -u +%Y%m%d_%H%M%S).log"
