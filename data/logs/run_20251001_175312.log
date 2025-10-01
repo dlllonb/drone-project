@@ -1,0 +1,11 @@
+[runner] logging to ../data/logs/run_20251001_175312.log
+[runner] child PGID: 759526
+Initialized GPS sensor
+Starting GPS data logging
+Initialized Threespace IMU
+Starting IMU data logging
+Opened camera: ZWO ASI178MC (3096x2080)
+Saving images to: /home/drone/drone-project/data/camera/cam_1759341193
+[1759341194] saved asi178_1759341194_f000000.png
+[1759341196] saved asi178_1759341196_f000001.png
+[1759341197] saved asi178_1759341197_f000002.png

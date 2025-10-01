@@ -1,0 +1,15 @@
+{"type": "gps_status", "event": "open", "path": "/home/drone/drone-project/data/gps/gps_20251001_175312.jsonl", "ts": 1759341192.7065444}
+{"type": "gps", "sys_time": 1759341193.0271454, "gps_time": "2025-10-01T17:53:13.000Z", "mode": 1, "lat": null, "lon": null, "alt_m": null, "speed_mps": null}
+{"type": "gps", "sys_time": 1759341193.0281236, "gps_time": "2025-10-01T17:53:13.000Z", "mode": 1, "lat": null, "lon": null, "alt_m": null, "speed_mps": null}
+{"type": "gps", "sys_time": 1759341194.0296903, "gps_time": "2025-10-01T17:53:14.000Z", "mode": 1, "lat": null, "lon": null, "alt_m": null, "speed_mps": null}
+{"type": "gps", "sys_time": 1759341194.0316706, "gps_time": "2025-10-01T17:53:14.000Z", "mode": 1, "lat": null, "lon": null, "alt_m": null, "speed_mps": null}
+{"type": "gps", "sys_time": 1759341195.0314806, "gps_time": "2025-10-01T17:53:15.000Z", "mode": 1, "lat": null, "lon": null, "alt_m": null, "speed_mps": null}
+{"type": "gps", "sys_time": 1759341195.0317898, "gps_time": "2025-10-01T17:53:15.000Z", "mode": 1, "lat": null, "lon": null, "alt_m": null, "speed_mps": null}
+{"type": "gps", "sys_time": 1759341196.0270534, "gps_time": "2025-10-01T17:53:16.000Z", "mode": 1, "lat": null, "lon": null, "alt_m": null, "speed_mps": null}
+{"type": "gps", "sys_time": 1759341196.0300992, "gps_time": "2025-10-01T17:53:16.000Z", "mode": 1, "lat": null, "lon": null, "alt_m": null, "speed_mps": null}
+{"type": "gps", "sys_time": 1759341197.0291786, "gps_time": "2025-10-01T17:53:17.000Z", "mode": 1, "lat": null, "lon": null, "alt_m": null, "speed_mps": null}
+{"type": "gps", "sys_time": 1759341197.0310805, "gps_time": "2025-10-01T17:53:17.000Z", "mode": 1, "lat": null, "lon": null, "alt_m": null, "speed_mps": null}
+{"type": "gps", "sys_time": 1759341198.1918314, "gps_time": "2025-10-01T17:53:18.000Z", "mode": 1, "lat": null, "lon": null, "alt_m": null, "speed_mps": null}
+{"type": "gps", "sys_time": 1759341198.1933804, "gps_time": "2025-10-01T17:53:18.000Z", "mode": 1, "lat": null, "lon": null, "alt_m": null, "speed_mps": null}
+{"type": "gps", "sys_time": 1759341199.0271761, "gps_time": "2025-10-01T17:53:19.000Z", "mode": 1, "lat": null, "lon": null, "alt_m": null, "speed_mps": null}
+{"type": "gps_status", "event": "close", "ts": 1759341199.0273366}
