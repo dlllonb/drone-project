@@ -46,6 +46,7 @@ def main():
         finally:
             fp.write(json.dumps({"type":"gps_status","event":"close","ts":time.time()}) + "\n")
             print("Wrote end of GPS log file")
+            fp.flush(); os.fsync(fp.fileno())
 
 if __name__ == "__main__":
     main()

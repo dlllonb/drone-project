@@ -77,13 +77,14 @@ def main():
                     "gyro_rps": gyro            # [gx, gy, gz]
                 }
                 fp.write(json.dumps(rec) + "\n")
-                time.sleep(0.01) # controls time sampling speed
+                time.sleep(0.05) # controls time sampling speed
         finally:
             fp.write(json.dumps({
                 "type": "imu_status",
                 "event": "close",
                 "ts": time.time()
             }) + "\n")
+            fp.flush(); os.fsync(fp.fileno())
     try:
         sensor.stopStreaming()
     except Exception:
