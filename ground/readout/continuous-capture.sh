@@ -11,7 +11,7 @@ CAPTURE_BIN="/home/declan/drone-project/ground/camera/capture-continuous.out"
 
 EXPOSURE_TIME=0.001
 GAIN=100
-INTERVAL=1.5
+INTERVAL=0.001
 
 trap "echo -e '\nStopping capture...'; exit 0" SIGINT
 
