@@ -9,6 +9,7 @@ import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 import time
+from typing import Optional, Tuple
 
 # === CONFIG ===
 counts_per_wheel_rev_guess = 2400
@@ -16,7 +17,13 @@ plot_types = ["one_pixel", "ROI_sum", "ROI_average", "ROI_median"]
 
 # Background ROI position/size (adjust as needed)
 background_yx = (50, 50)   # top-left corner for background
-roi_size = 3               # 3x3 for both ROI and background
+roi_size = 3               # roi_size x roi_size for both ROI and background
+
+# Fit config (Fourier 4θ model)
+DO_FIT_ON_FOLDED = True          # only fit the folded plots (vs Plate Angle)
+FIT_MIN_POINTS = 20             # require at least this many points to fit
+FIT_EVAL_SAMPLES = 800          # points for the red fit curve
+FIT_USE_WEIGHTS = False         # keep simple for now
 
 
 def parse_fits_dateobs_to_timestamp(dateobs: str) -> float | None:
@@ -79,19 +86,6 @@ def find_closest_encoder_angle(fits_ts, encoder_ts_array, encoder_counts):
     return encoder_counts[closest_idx]
 
 
-def save_plot(x, y, c, xlabel, ylabel, title, outpath):
-    plt.figure(figsize=(8, 5))
-    sc = plt.scatter(x, y, c=c, cmap="viridis", s=15, marker='o')
-    plt.xlabel(xlabel)
-    plt.ylabel(ylabel)
-    plt.title(title)
-    plt.colorbar(sc, label="Rotation index")
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig(outpath)
-    plt.close()
-
-
 def estimate_best_time_offset_seconds(fits_ts_list, encoder_ts_array, debug=False):
     """
     Try whole-hour offsets from -12h..+12h and pick the one that yields
@@ -128,6 +122,90 @@ def estimate_best_time_offset_seconds(fits_ts_list, encoder_ts_array, debug=Fals
     return best_offset
 
 
+def fit_fourier_4theta(theta: np.ndarray, y: np.ndarray) -> Optional[Tuple[float, float, float, float, float, float]]:
+    """
+    Fit: y(theta) = a0 + a4*cos(4θ) + b4*sin(4θ)
+    Returns (a0, a4, b4, A4, phi4, psi) where:
+      A4 = sqrt(a4^2 + b4^2)
+      phi4 = atan2(b4, a4)  (radians)
+      psi = phi4 / 4        (radians), instrument-frame polarization angle modulo pi/2
+    """
+    if theta.size < FIT_MIN_POINTS:
+        return None
+
+    # Remove NaNs/infs
+    m = np.isfinite(theta) & np.isfinite(y)
+    theta = theta[m]
+    y = y[m]
+    if theta.size < FIT_MIN_POINTS:
+        return None
+
+    X = np.column_stack([
+        np.ones_like(theta, dtype=np.float64),
+        np.cos(4.0 * theta),
+        np.sin(4.0 * theta),
+    ]).astype(np.float64)
+
+    yy = y.astype(np.float64)
+
+    try:
+        if FIT_USE_WEIGHTS:
+            # placeholder if you later want weights; keep unweighted for now
+            pass
+
+        beta, *_ = np.linalg.lstsq(X, yy, rcond=None)
+        a0, a4, b4 = float(beta[0]), float(beta[1]), float(beta[2])
+
+        A4 = float(np.hypot(a4, b4))
+        phi4 = float(np.arctan2(b4, a4))
+        psi = float(phi4 / 4.0)
+        return a0, a4, b4, A4, phi4, psi
+    except Exception:
+        return None
+
+
+def format_fit_label(a0, a4, b4, A4, phi4, psi) -> str:
+    psi_deg = (psi * 180.0 / np.pi) % 90.0  # modulo pi/2
+    return f"fit: A4={A4:.3g}, ψ={psi_deg:.2f}° (mod 90°)"
+
+
+def save_scatter_plot(
+    x: np.ndarray,
+    y: np.ndarray,
+    c: np.ndarray,
+    xlabel: str,
+    ylabel: str,
+    title: str,
+    outpath: str,
+    fit_x_is_angle: bool = False,
+):
+    plt.figure(figsize=(8, 5))
+    sc = plt.scatter(x, y, c=c, cmap="viridis", s=15, marker="o", label="data")
+
+    if fit_x_is_angle and DO_FIT_ON_FOLDED:
+        fit = fit_fourier_4theta(x, y)
+        if fit is not None:
+            a0, a4, b4, A4, phi4, psi = fit
+            xs = np.linspace(0.0, 2.0 * np.pi, FIT_EVAL_SAMPLES)
+            ys = a0 + a4 * np.cos(4.0 * xs) + b4 * np.sin(4.0 * xs)
+            plt.plot(xs, ys, "-", color="red", linewidth=2.0, label=format_fit_label(a0, a4, b4, A4, phi4, psi))
+
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.title(title)
+    plt.colorbar(sc, label="Rotation index")
+    plt.grid(True)
+
+    # --- legend outside ---
+    plt.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), borderaxespad=0.0)
+
+    # leave room on the right for legend + colorbar
+    plt.tight_layout(rect=(0, 0, 0.82, 1))
+
+    plt.savefig(outpath, dpi=150)
+    plt.close()
+
+
 def main():
     # Args:
     # create-plot.py [--debug] [--time-offset-hours N] <fits_exposure_dir> <encoder_data.pkl>
@@ -160,7 +238,6 @@ def main():
     plot_base_dir = os.path.join(fits_dir, "plots")
     os.makedirs(plot_base_dir, exist_ok=True)
 
-    # Only create folders we actually plot
     for folder in plot_types:
         os.makedirs(os.path.join(plot_base_dir, folder), exist_ok=True)
 
@@ -248,8 +325,10 @@ def main():
         if encoder_val is None:
             skip_no_encoder_match += 1
             if DEBUG and skip_no_encoder_match <= 5:
-                print(f"[DEBUG] No encoder match for {os.path.basename(ffile)} fits_ts={fits_ts} "
-                      f"(encoder range {encoder_ts_array[0]}->{encoder_ts_array[-1]})")
+                print(
+                    f"[DEBUG] No encoder match for {os.path.basename(ffile)} fits_ts={fits_ts} "
+                    f"(encoder range {encoder_ts_array[0]}->{encoder_ts_array[-1]})"
+                )
             continue
 
         data = fits.getdata(ffile, extname="GREEN1")
@@ -279,7 +358,7 @@ def main():
         rot_index = int(np.floor(rel / counts_per_wheel_rev_guess))
         rotations.append(rot_index)
 
-        # Pixel-by-pixel background subtraction (NOT subtracting only means/sums)
+        # Pixel-by-pixel background subtraction
         corrected = roi_i32 - bg_i32  # same shape (roi_size x roi_size)
 
         # Values we keep
@@ -288,9 +367,9 @@ def main():
         vals["ROI_average"].append(float(np.mean(corrected)))
         vals["ROI_median"].append(float(np.median(corrected)))
 
-    encoders = np.array(encoders)
-    angles = np.array(angles)
-    rotations = np.array(rotations)
+    encoders = np.array(encoders, dtype=np.int64)
+    angles = np.array(angles, dtype=np.float64)
+    rotations = np.array(rotations, dtype=np.int64)
 
     if DEBUG:
         print("\n[DEBUG] ===== Summary =====")
@@ -308,10 +387,10 @@ def main():
 
     for j, k in enumerate(plot_types, start=1):
         print(f"[INFO] Plot {j}/{len(plot_types)}: {k}")
-
         y = np.array(vals[k])
 
-        save_plot(
+        # Unfolded plot (encoder count)
+        save_scatter_plot(
             encoders,
             y,
             rotations,
@@ -319,9 +398,11 @@ def main():
             k.replace("_", " ").title(),
             f"{k.replace('_', ' ').title()} vs Encoder",
             outpath=os.path.join(plot_base_dir, k, f"{k}_vs_encoder.png"),
+            fit_x_is_angle=False,  # no fit overlay here
         )
 
-        save_plot(
+        # Folded plot (plate angle)
+        save_scatter_plot(
             angles,
             y,
             rotations,
@@ -329,11 +410,11 @@ def main():
             k.replace("_", " ").title(),
             f"{k.replace('_', ' ').title()} vs Plate Angle",
             outpath=os.path.join(plot_base_dir, k, f"{k}_vs_angle.png"),
+            fit_x_is_angle=True,   # fit overlay here (red curve)
         )
 
     print(f"[INFO] Plot generation completed in {time.time() - plot_t0:.1f} s")
     print(f"[INFO] Total runtime: {time.time() - t0:.1f} s")
-
     print("All plots saved to:", plot_base_dir)
 
 
