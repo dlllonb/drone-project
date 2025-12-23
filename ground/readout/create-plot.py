@@ -9,7 +9,7 @@ import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 import time
-from typing import Optional, Tuple
+from typing import Optional, Dict, Tuple, List
 
 # === CONFIG ===
 counts_per_wheel_rev_guess = 2400
@@ -19,11 +19,21 @@ plot_types = ["one_pixel", "ROI_sum", "ROI_average", "ROI_median"]
 background_yx = (50, 50)   # top-left corner for background
 roi_size = 3               # roi_size x roi_size for both ROI and background
 
-# Fit config (Fourier 4θ model)
-DO_FIT_ON_FOLDED = True          # only fit the folded plots (vs Plate Angle)
-FIT_MIN_POINTS = 20             # require at least this many points to fit
-FIT_EVAL_SAMPLES = 800          # points for the red fit curve
-FIT_USE_WEIGHTS = False         # keep simple for now
+# Fit config (Fourier model on folded plots only)
+DO_FIT_ON_FOLDED = True
+FIT_MIN_POINTS = 50
+FIT_EVAL_SAMPLES = 1000
+
+# Which harmonics to include in the fit (2θ + 4θ is usually the first "non-ideal" upgrade)
+FIT_HARMONICS = [2, 4]
+FIT_INCLUDE_8TH = False  # set True if you want to add 8θ
+if FIT_INCLUDE_8TH and 8 not in FIT_HARMONICS:
+    FIT_HARMONICS = FIT_HARMONICS + [8]
+
+# Detrend (recommended for longer runs)
+# Removes per-rotation baseline offsets *for fitting* to avoid drift smearing the curve.
+DETREND_PER_ROTATION_FOR_FIT = True
+DETREND_STAT = "median"  # "median" or "mean"
 
 
 def parse_fits_dateobs_to_timestamp(dateobs: str) -> float | None:
@@ -122,51 +132,109 @@ def estimate_best_time_offset_seconds(fits_ts_list, encoder_ts_array, debug=Fals
     return best_offset
 
 
-def fit_fourier_4theta(theta: np.ndarray, y: np.ndarray) -> Optional[Tuple[float, float, float, float, float, float]]:
+def per_rotation_detrend(y: np.ndarray, rotations: np.ndarray, stat: str = "median") -> np.ndarray:
     """
-    Fit: y(theta) = a0 + a4*cos(4θ) + b4*sin(4θ)
-    Returns (a0, a4, b4, A4, phi4, psi) where:
-      A4 = sqrt(a4^2 + b4^2)
-      phi4 = atan2(b4, a4)  (radians)
-      psi = phi4 / 4        (radians), instrument-frame polarization angle modulo pi/2
+    Return y' where for each rotation index we subtract that rotation's baseline (median or mean).
+    Useful to remove slow drift between revolutions.
+    """
+    y = y.astype(np.float64, copy=False)
+    rot = rotations.astype(np.int64, copy=False)
+
+    y_out = y.copy()
+    for r in np.unique(rot):
+        m = (rot == r)
+        if not np.any(m):
+            continue
+        base = np.median(y[m]) if stat == "median" else np.mean(y[m])
+        y_out[m] = y_out[m] - base
+    return y_out
+
+
+def build_design_matrix(theta: np.ndarray, harmonics: List[int]) -> np.ndarray:
+    """
+    X columns: [1, cos(kθ), sin(kθ) for k in harmonics]
+    """
+    cols = [np.ones_like(theta, dtype=np.float64)]
+    for k in harmonics:
+        cols.append(np.cos(k * theta))
+        cols.append(np.sin(k * theta))
+    return np.column_stack(cols).astype(np.float64)
+
+
+def fit_fourier(theta: np.ndarray, y: np.ndarray, harmonics: List[int]) -> Optional[Dict[str, float]]:
+    """
+    Fit y(theta) = a0 + Σ_k (a_k cos(kθ) + b_k sin(kθ))
+
+    Returns a dict with:
+      a0, (a2,b2), (a4,b4), ... as available
+      A2,phi2, A4,phi4, psi (from 4θ), R2
     """
     if theta.size < FIT_MIN_POINTS:
         return None
 
-    # Remove NaNs/infs
     m = np.isfinite(theta) & np.isfinite(y)
-    theta = theta[m]
-    y = y[m]
+    theta = theta[m].astype(np.float64)
+    y = y[m].astype(np.float64)
     if theta.size < FIT_MIN_POINTS:
         return None
 
-    X = np.column_stack([
-        np.ones_like(theta, dtype=np.float64),
-        np.cos(4.0 * theta),
-        np.sin(4.0 * theta),
-    ]).astype(np.float64)
-
-    yy = y.astype(np.float64)
-
+    X = build_design_matrix(theta, harmonics)
     try:
-        if FIT_USE_WEIGHTS:
-            # placeholder if you later want weights; keep unweighted for now
-            pass
-
-        beta, *_ = np.linalg.lstsq(X, yy, rcond=None)
-        a0, a4, b4 = float(beta[0]), float(beta[1]), float(beta[2])
-
-        A4 = float(np.hypot(a4, b4))
-        phi4 = float(np.arctan2(b4, a4))
-        psi = float(phi4 / 4.0)
-        return a0, a4, b4, A4, phi4, psi
+        beta, *_ = np.linalg.lstsq(X, y, rcond=None)
     except Exception:
         return None
 
+    yhat = X @ beta
+    resid = y - yhat
 
-def format_fit_label(a0, a4, b4, A4, phi4, psi) -> str:
-    psi_deg = (psi * 180.0 / np.pi) % 90.0  # modulo pi/2
-    return f"fit: A4={A4:.3g}, ψ={psi_deg:.2f}° (mod 90°)"
+    ss_res = float(np.sum(resid * resid))
+    ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+    R2 = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else float("nan")
+
+    out: Dict[str, float] = {}
+    out["a0"] = float(beta[0])
+    out["R2"] = float(R2)
+
+    # unpack harmonics
+    idx = 1
+    for k in harmonics:
+        ak = float(beta[idx]); bk = float(beta[idx + 1])
+        out[f"a{k}"] = ak
+        out[f"b{k}"] = bk
+        out[f"A{k}"] = float(np.hypot(ak, bk))
+        out[f"phi{k}"] = float(np.arctan2(bk, ak))
+        idx += 2
+
+    # polarization angle from 4θ phase if present
+    if 4 in harmonics:
+        phi4 = out["phi4"]  # radians
+        psi = phi4 / 4.0
+        out["psi"] = float(psi)
+
+    return out
+
+
+def eval_fourier(theta: np.ndarray, params: Dict[str, float], harmonics: List[int]) -> np.ndarray:
+    y = np.full_like(theta, params.get("a0", 0.0), dtype=np.float64)
+    for k in harmonics:
+        ak = params.get(f"a{k}", 0.0)
+        bk = params.get(f"b{k}", 0.0)
+        y = y + ak * np.cos(k * theta) + bk * np.sin(k * theta)
+    return y
+
+
+def format_fit_label(params: Dict[str, float], harmonics: List[int]) -> str:
+    parts = []
+    if 4 in harmonics and "psi" in params:
+        psi_deg_mod90 = (params["psi"] * 180.0 / np.pi) % 90.0
+        parts.append(f"ψ={psi_deg_mod90:.2f}° (mod 90°)")
+        parts.append(f"A4={params.get('A4', float('nan')):.3g}")
+    if 2 in harmonics:
+        parts.append(f"A2={params.get('A2', float('nan')):.3g}")
+    if 8 in harmonics:
+        parts.append(f"A8={params.get('A8', float('nan')):.3g}")
+    parts.append(f"R²={params.get('R2', float('nan')):.3f}")
+    return "fit: " + ", ".join(parts)
 
 
 def save_scatter_plot(
@@ -178,17 +246,22 @@ def save_scatter_plot(
     title: str,
     outpath: str,
     fit_x_is_angle: bool = False,
+    rotations: Optional[np.ndarray] = None,
 ):
     plt.figure(figsize=(8, 5))
     sc = plt.scatter(x, y, c=c, cmap="viridis", s=15, marker="o", label="data")
 
     if fit_x_is_angle and DO_FIT_ON_FOLDED:
-        fit = fit_fourier_4theta(x, y)
-        if fit is not None:
-            a0, a4, b4, A4, phi4, psi = fit
+        # For fitting, optionally detrend per rotation
+        y_fit = y
+        # if DETREND_PER_ROTATION_FOR_FIT and rotations is not None:
+        #    y_fit = per_rotation_detrend(y_fit, rotations, stat=DETREND_STAT)
+
+        params = fit_fourier(x, y_fit, FIT_HARMONICS)
+        if params is not None:
             xs = np.linspace(0.0, 2.0 * np.pi, FIT_EVAL_SAMPLES)
-            ys = a0 + a4 * np.cos(4.0 * xs) + b4 * np.sin(4.0 * xs)
-            plt.plot(xs, ys, "-", color="red", linewidth=2.0, label=format_fit_label(a0, a4, b4, A4, phi4, psi))
+            ys = eval_fourier(xs, params, FIT_HARMONICS)
+            plt.plot(xs, ys, "-", color="red", linewidth=2.0, label=format_fit_label(params, FIT_HARMONICS))
 
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
@@ -196,10 +269,20 @@ def save_scatter_plot(
     plt.colorbar(sc, label="Rotation index")
     plt.grid(True)
 
-    # --- legend outside ---
-    plt.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), borderaxespad=0.0)
+    # legend outside
+        # legend above (no squeezing)
+    plt.legend(
+        loc="lower center",
+        bbox_to_anchor=(0.5, 1.20),   # just above the axes
+        ncol=1,
+        frameon=True
+    )
 
-    # leave room on the right for legend + colorbar
+    # Give extra top margin for the legend (and keep room for colorbar automatically)
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.82)
+
+    # leave room on right for colorbar+legend
     plt.tight_layout(rect=(0, 0, 0.82, 1))
 
     plt.savefig(outpath, dpi=150)
@@ -255,6 +338,7 @@ def main():
         print(f"[DEBUG] Encoder end   UTC: {datetime.fromtimestamp(encoder_ts_array[-1], tz=timezone.utc)}")
         print(f"[DEBUG] Encoder counts range: {np.min(encoder_counts)} -> {np.max(encoder_counts)}")
         print(f"[DEBUG] FITS files found: {len(fits_files)}")
+        print(f"[DEBUG] Fit harmonics: {FIT_HARMONICS} (detrend_per_rotation_for_fit={DETREND_PER_ROTATION_FOR_FIT}, stat={DETREND_STAT})")
 
     # Parse FITS timestamps up front
     fits_ts_raw = []
@@ -269,17 +353,6 @@ def main():
             print(f"[DEBUG] Using MANUAL time offset: {offset_sec/3600:+.0f} hours")
     else:
         offset_sec = estimate_best_time_offset_seconds(fits_ts_raw, encoder_ts_array, debug=DEBUG)
-
-    if DEBUG:
-        for ex in fits_files[:3]:
-            s = fits.getheader(ex).get("DATE-OBS")
-            ts = parse_fits_dateobs_to_timestamp(s)
-            print(f"[DEBUG] Example DATE-OBS ({os.path.basename(ex)}): {s}")
-            if ts is None:
-                print("[DEBUG]  -> parse failed")
-                continue
-            print(f"[DEBUG]  -> FITS UTC (raw):    {datetime.fromtimestamp(ts, tz=timezone.utc)}")
-            print(f"[DEBUG]  -> FITS UTC (offset): {datetime.fromtimestamp(ts+offset_sec, tz=timezone.utc)}")
 
     # === Use GREEN1 channel explicitly ===
     first_data = fits.getdata(fits_files[0], extname="GREEN1")
@@ -303,13 +376,12 @@ def main():
     total_files = len(fits_files)
 
     for i, ffile in enumerate(fits_files, start=1):
-        if i == 1 or i % 100 == 0 or i == total_files:
+        if i == 1 or i % 200 == 0 or i == total_files:
             elapsed = time.time() - t0
             rate = i / elapsed if elapsed > 0 else 0.0
             print(f"[INFO] Processing FITS {i}/{total_files} ({rate:.1f} files/s)")
 
-        hdr = fits.getheader(ffile)
-        fits_time_str = hdr.get("DATE-OBS")
+        fits_time_str = fits.getheader(ffile).get("DATE-OBS")
         if not fits_time_str:
             skip_no_dateobs += 1
             continue
@@ -359,7 +431,7 @@ def main():
         rotations.append(rot_index)
 
         # Pixel-by-pixel background subtraction
-        corrected = roi_i32 - bg_i32  # same shape (roi_size x roi_size)
+        corrected = roi_i32 - bg_i32
 
         # Values we keep
         vals["one_pixel"].append(int(data[y_max, x_max]))
@@ -387,7 +459,7 @@ def main():
 
     for j, k in enumerate(plot_types, start=1):
         print(f"[INFO] Plot {j}/{len(plot_types)}: {k}")
-        y = np.array(vals[k])
+        y = np.array(vals[k], dtype=np.float64)
 
         # Unfolded plot (encoder count)
         save_scatter_plot(
@@ -398,10 +470,11 @@ def main():
             k.replace("_", " ").title(),
             f"{k.replace('_', ' ').title()} vs Encoder",
             outpath=os.path.join(plot_base_dir, k, f"{k}_vs_encoder.png"),
-            fit_x_is_angle=False,  # no fit overlay here
+            fit_x_is_angle=False,
+            rotations=None,
         )
 
-        # Folded plot (plate angle)
+        # Folded plot (plate angle) with fit overlay (red)
         save_scatter_plot(
             angles,
             y,
@@ -410,7 +483,8 @@ def main():
             k.replace("_", " ").title(),
             f"{k.replace('_', ' ').title()} vs Plate Angle",
             outpath=os.path.join(plot_base_dir, k, f"{k}_vs_angle.png"),
-            fit_x_is_angle=True,   # fit overlay here (red curve)
+            fit_x_is_angle=True,
+            rotations=rotations,
         )
 
     print(f"[INFO] Plot generation completed in {time.time() - plot_t0:.1f} s")
