@@ -15,15 +15,14 @@ plot_types = ["one_pixel", "ROI_sum", "ROI_average", "ROI_median"]
 
 # Background ROI position/size (adjust as needed)
 background_yx = (50, 50)   # top-left corner for background
-roi_size = 3               # 3x3 for both ROI and background
+roi_size = 3               # background ROI size (roi_size x roi_size)
 
 
 def parse_fits_dateobs_to_timestamp(dateobs: str) -> float | None:
     """
     Parse DATE-OBS to a POSIX timestamp (seconds).
-    IMPORTANT: We parse what the string says.
-    If it ends with 'Z', we treat it as UTC.
-    If tz-naive, we treat it as LOCAL and convert to UTC using system tz rules.
+    If it ends with 'Z', treat as UTC.
+    If tz-naive, treat as LOCAL and convert to UTC using system tz rules.
     """
     try:
         if not dateobs:
@@ -78,7 +77,7 @@ def find_closest_encoder_angle(fits_ts, encoder_ts_array, encoder_counts):
 
 def save_plot(x, y, c, xlabel, ylabel, title, outpath):
     plt.figure(figsize=(8, 5))
-    sc = plt.scatter(x, y, c=c, cmap="viridis", s=15, marker='o')
+    sc = plt.scatter(x, y, c=c, cmap="viridis", s=15, marker="o")
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     plt.title(title)
@@ -117,8 +116,10 @@ def estimate_best_time_offset_seconds(fits_ts_list, encoder_ts_array, debug=Fals
             best_offset = off
 
     if debug:
-        print(f"[DEBUG] Auto time-offset search best: {best_offset/3600:+.0f} hours "
-              f"(range-matches in sample={best_matches}/{len(sample)})")
+        print(
+            f"[DEBUG] Auto time-offset search best: {best_offset/3600:+.0f} hours "
+            f"(range-matches in sample={best_matches}/{len(sample)})"
+        )
 
     return best_offset
 
@@ -145,7 +146,10 @@ def main():
         args.pop(i)  # value
 
     if len(args) != 2:
-        print(f"Usage: {sys.argv[0]} [--debug] [--time-offset-hours N] <fits_exposure_dir> <encoder_data.pkl>")
+        print(
+            f"Usage: {sys.argv[0]} [--debug] [--time-offset-hours N] "
+            "<fits_exposure_dir> <encoder_data.pkl>"
+        )
         sys.exit(1)
 
     fits_dir = args[0]
@@ -155,7 +159,6 @@ def main():
     plot_base_dir = os.path.join(fits_dir, "plots")
     os.makedirs(plot_base_dir, exist_ok=True)
 
-    # Only create folders we actually plot
     for folder in plot_types:
         os.makedirs(os.path.join(plot_base_dir, folder), exist_ok=True)
 
@@ -197,14 +200,17 @@ def main():
                 print("[DEBUG]  -> parse failed")
                 continue
             print(f"[DEBUG]  -> FITS UTC (raw):    {datetime.fromtimestamp(ts, tz=timezone.utc)}")
-            print(f"[DEBUG]  -> FITS UTC (offset): {datetime.fromtimestamp(ts+offset_sec, tz=timezone.utc)}")
+            print(f"[DEBUG]  -> FITS UTC (offset): {datetime.fromtimestamp(ts + offset_sec, tz=timezone.utc)}")
 
     # === Use GREEN1 channel explicitly ===
     first_data = fits.getdata(fits_files[0], extname="GREEN1")
     y_max, x_max = np.unravel_index(np.argmax(first_data), first_data.shape)
 
     if DEBUG:
-        print(f"[DEBUG] Brightest pixel in GREEN1 of first frame: x={x_max}, y={y_max}, value={first_data[y_max, x_max]}")
+        print(
+            f"[DEBUG] Brightest pixel in GREEN1 of first frame: "
+            f"x={x_max}, y={y_max}, value={first_data[y_max, x_max]}"
+        )
         print(f"[DEBUG] GREEN1 shape: {first_data.shape}, dtype={first_data.dtype}")
 
     encoders = []
@@ -235,8 +241,10 @@ def main():
         if encoder_val is None:
             skip_no_encoder_match += 1
             if DEBUG and skip_no_encoder_match <= 5:
-                print(f"[DEBUG] No encoder match for {os.path.basename(ffile)} fits_ts={fits_ts} "
-                      f"(encoder range {encoder_ts_array[0]}->{encoder_ts_array[-1]})")
+                print(
+                    f"[DEBUG] No encoder match for {os.path.basename(ffile)} fits_ts={fits_ts} "
+                    f"(encoder range {encoder_ts_array[0]}->{encoder_ts_array[-1]})"
+                )
             continue
 
         data = fits.getdata(ffile, extname="GREEN1")
@@ -245,20 +253,22 @@ def main():
         if y_max - 1 < 0 or x_max - 1 < 0 or y_max + 2 > data.shape[0] or x_max + 2 > data.shape[1]:
             skip_bad_roi += 1
             continue
+
         by, bx = background_yx
-        if by + roi_size > data.shape[0] or bx + roi_size > data.shape[1]:
+        if by < 0 or bx < 0 or by + roi_size > data.shape[0] or bx + roi_size > data.shape[1]:
             skip_bad_roi += 1
             continue
 
-        roi = data[y_max-1:y_max+2, x_max-1:x_max+2]
-        background_roi = data[by:by+roi_size, bx:bx+roi_size]
+        # Signal ROI (3x3 around brightest pixel)
+        roi = data[y_max - 1 : y_max + 2, x_max - 1 : x_max + 2]
+        background_roi = data[by : by + roi_size, bx : bx + roi_size]
 
         # Safe math (avoid uint16 under/overflow)
         roi_i32 = roi.astype(np.int32)
         bg_i32 = background_roi.astype(np.int32)
 
         background_mean = float(np.mean(bg_i32))
-        background_sum = int(np.sum(bg_i32))
+        N = int(roi_i32.size)  # number of pixels in signal ROI (e.g., 9 for 3x3)
 
         encoders.append(int(encoder_val))
 
@@ -271,9 +281,9 @@ def main():
 
         # Values we keep
         vals["one_pixel"].append(int(data[y_max, x_max]))
-        vals["ROI_sum"].append(int(np.sum(roi_i32)) - background_sum)
-        vals["ROI_average"].append(float(np.mean(roi_i32)) - background_mean)
-        vals["ROI_median"].append(float(np.median(roi_i32)) - background_mean)
+        vals["ROI_sum"].append(int(np.sum(roi_i32) - background_mean * N))
+        vals["ROI_average"].append(float(np.mean(roi_i32) - background_mean))
+        vals["ROI_median"].append(float(np.median(roi_i32) - background_mean))
 
     encoders = np.array(encoders)
     angles = np.array(angles)
@@ -293,15 +303,25 @@ def main():
     for k in plot_types:
         y = np.array(vals[k])
 
-        save_plot(encoders, y, rotations,
-                  "Encoder Count", k.replace("_", " ").title(),
-                  f"{k.replace('_', ' ').title()} vs Encoder",
-                  outpath=os.path.join(plot_base_dir, k, f"{k}_vs_encoder.png"))
+        save_plot(
+            encoders,
+            y,
+            rotations,
+            "Encoder Count",
+            k.replace("_", " ").title(),
+            f"{k.replace('_', ' ').title()} vs Encoder",
+            outpath=os.path.join(plot_base_dir, k, f"{k}_vs_encoder.png"),
+        )
 
-        save_plot(angles, y, rotations,
-                  "Plate Angle (rad)", k.replace("_", " ").title(),
-                  f"{k.replace('_', ' ').title()} vs Plate Angle",
-                  outpath=os.path.join(plot_base_dir, k, f"{k}_vs_angle.png"))
+        save_plot(
+            angles,
+            y,
+            rotations,
+            "Plate Angle (rad)",
+            k.replace("_", " ").title(),
+            f"{k.replace('_', ' ').title()} vs Plate Angle",
+            outpath=os.path.join(plot_base_dir, k, f"{k}_vs_angle.png"),
+        )
 
     print("All plots saved to:", plot_base_dir)
 
