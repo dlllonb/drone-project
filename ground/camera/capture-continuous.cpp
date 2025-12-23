@@ -23,16 +23,18 @@ void signal_handler(int signum) {
 string make_filename_from_time() {
     struct timeval tv;
     gettimeofday(&tv, nullptr);
-    struct tm *ltm = localtime(&tv.tv_sec);
+
+    struct tm tm_utc;
+    gmtime_r(&tv.tv_sec, &tm_utc);  // UTC, thread-safe
 
     stringstream filename;
     filename << "exposure-"
-             << (1900 + ltm->tm_year)
-             << setfill('0') << setw(2) << (1 + ltm->tm_mon)
-             << setw(2) << ltm->tm_mday << "-"
-             << setw(2) << ltm->tm_hour
-             << setw(2) << ltm->tm_min
-             << setw(2) << ltm->tm_sec << "-"
+             << (1900 + tm_utc.tm_year)
+             << setfill('0') << setw(2) << (1 + tm_utc.tm_mon)
+             << setw(2) << tm_utc.tm_mday << "-"
+             << setw(2) << tm_utc.tm_hour
+             << setw(2) << tm_utc.tm_min
+             << setw(2) << tm_utc.tm_sec << "-"
              << setfill('0') << setw(3) << (tv.tv_usec / 1000)
              << ".bin";
     return filename.str();
