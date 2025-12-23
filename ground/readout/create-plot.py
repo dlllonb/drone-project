@@ -11,8 +11,7 @@ import matplotlib.pyplot as plt
 
 # === CONFIG ===
 counts_per_wheel_rev_guess = 2400
-plot_types = ["one_pixel", "all_pixel_sum", "all_pixel_avg",
-              "ROI_sum", "ROI_average", "ROI_median"]
+plot_types = ["one_pixel", "ROI_sum", "ROI_average", "ROI_median"]
 
 # Background ROI position/size (adjust as needed)
 background_yx = (50, 50)   # top-left corner for background
@@ -56,7 +55,7 @@ def load_encoder_data(pkl_path):
     encoder_times_ms = np.array(list(data.keys()))
     encoder_counts = np.array(list(data.values()))
 
-    # NOTE: epoch milliseconds -> epoch seconds in UTC (epoch itself is UTC)
+    # epoch milliseconds -> epoch seconds (epoch is UTC)
     encoder_ts_float = encoder_times_ms.astype(np.float64) / 1000.0
     return encoder_ts_float, encoder_counts
 
@@ -93,12 +92,11 @@ def save_plot(x, y, c, xlabel, ylabel, title, outpath):
 def estimate_best_time_offset_seconds(fits_ts_list, encoder_ts_array, debug=False):
     """
     Try whole-hour offsets from -12h..+12h and pick the one that yields
-    the most encoder matches.
+    the most encoder matches (range-based proxy).
     """
     if len(fits_ts_list) == 0 or len(encoder_ts_array) == 0:
         return 0
 
-    # Sample a subset for speed
     sample = fits_ts_list[: min(200, len(fits_ts_list))]
 
     best_offset = 0
@@ -112,7 +110,6 @@ def estimate_best_time_offset_seconds(fits_ts_list, encoder_ts_array, debug=Fals
                 continue
             ts2 = ts + off
             if encoder_ts_array[0] <= ts2 <= encoder_ts_array[-1]:
-                # cheap "range match" first; good proxy
                 matches += 1
 
         if matches > best_matches:
@@ -144,9 +141,8 @@ def main():
         except Exception:
             print("Error: --time-offset-hours requires a number")
             sys.exit(1)
-        # remove flag + value
-        args.pop(i)      # flag
-        args.pop(i)      # value (same index after pop)
+        args.pop(i)  # flag
+        args.pop(i)  # value
 
     if len(args) != 2:
         print(f"Usage: {sys.argv[0]} [--debug] [--time-offset-hours N] <fits_exposure_dir> <encoder_data.pkl>")
@@ -158,6 +154,8 @@ def main():
     fits_path = os.path.join(fits_dir, "processed", "fits")
     plot_base_dir = os.path.join(fits_dir, "plots")
     os.makedirs(plot_base_dir, exist_ok=True)
+
+    # Only create folders we actually plot
     for folder in plot_types:
         os.makedirs(os.path.join(plot_base_dir, folder), exist_ok=True)
 
@@ -176,7 +174,7 @@ def main():
         print(f"[DEBUG] Encoder counts range: {np.min(encoder_counts)} -> {np.max(encoder_counts)}")
         print(f"[DEBUG] FITS files found: {len(fits_files)}")
 
-    # Parse a bunch of FITS timestamps up front
+    # Parse FITS timestamps up front
     fits_ts_raw = []
     for f in fits_files:
         s = fits.getheader(f).get("DATE-OBS")
@@ -191,7 +189,6 @@ def main():
         offset_sec = estimate_best_time_offset_seconds(fits_ts_raw, encoder_ts_array, debug=DEBUG)
 
     if DEBUG:
-        # Show a few examples with and without offset
         for ex in fits_files[:3]:
             s = fits.getheader(ex).get("DATE-OBS")
             ts = parse_fits_dateobs_to_timestamp(s)
@@ -220,7 +217,7 @@ def main():
     skip_no_encoder_match = 0
     skip_bad_roi = 0
 
-    for idx_file, ffile in enumerate(fits_files):
+    for ffile in fits_files:
         hdr = fits.getheader(ffile)
         fits_time_str = hdr.get("DATE-OBS")
         if not fits_time_str:
@@ -232,7 +229,7 @@ def main():
             skip_bad_dateobs += 1
             continue
 
-        fits_ts += offset_sec  # <-- apply alignment offset
+        fits_ts += offset_sec
 
         encoder_val = find_closest_encoder_angle(fits_ts, encoder_ts_array, encoder_counts)
         if encoder_val is None:
@@ -272,11 +269,8 @@ def main():
         rot_index = int(np.floor(rel / counts_per_wheel_rev_guess))
         rotations.append(rot_index)
 
-        # Values
+        # Values we keep
         vals["one_pixel"].append(int(data[y_max, x_max]))
-        vals["all_pixel_sum"].append(int(np.sum(data, dtype=np.uint64)))  # no bg subtract
-        vals["all_pixel_avg"].append(float(np.mean(data)))                # no bg subtract
-
         vals["ROI_sum"].append(int(np.sum(roi_i32)) - background_sum)
         vals["ROI_average"].append(float(np.mean(roi_i32)) - background_mean)
         vals["ROI_median"].append(float(np.median(roi_i32)) - background_mean)
@@ -298,6 +292,7 @@ def main():
 
     for k in plot_types:
         y = np.array(vals[k])
+
         save_plot(encoders, y, rotations,
                   "Encoder Count", k.replace("_", " ").title(),
                   f"{k.replace('_', ' ').title()} vs Encoder",
