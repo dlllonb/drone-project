@@ -9,7 +9,7 @@ from PIL import Image
 import os
 import zwoasi
 
-EXPOSURE_US = 200_000 # microseconds
+EXPOSURE_US = 100000 # microseconds (1000000 = 1 s)
 GAIN = 100                 
 IMAGE_TYPE = "RAW8" # or "RAW16"
 BANDWIDTH = 40              

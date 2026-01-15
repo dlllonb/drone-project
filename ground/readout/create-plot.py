@@ -4,72 +4,323 @@ import sys
 import os
 from glob import glob
 from astropy.io import fits
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import pickle
 import numpy as np
 import matplotlib.pyplot as plt
+import time
+from typing import Optional, Dict, Tuple, List
 
 # === CONFIG ===
 counts_per_wheel_rev_guess = 2400
-timezone_offset_hours = 4
-plot_types = ["one_pixel", "all_pixel_sum", "all_pixel_avg",
-              "ROI_sum", "ROI_average", "ROI_median"]
+plot_types = ["one_pixel", "ROI_sum", "ROI_average", "ROI_median"]
 
 # Background ROI position/size (adjust as needed)
 background_yx = (50, 50)   # top-left corner for background
-roi_size = 3               # 3x3 for both ROI and background
+roi_size = 3               # roi_size x roi_size for both ROI and background
+
+# Fit config (Fourier model on folded plots only)
+DO_FIT_ON_FOLDED = True
+FIT_MIN_POINTS = 50
+FIT_EVAL_SAMPLES = 1000
+
+# Which harmonics to include in the fit (2θ + 4θ is usually the first "non-ideal" upgrade)
+FIT_HARMONICS = [2, 4]
+FIT_INCLUDE_8TH = False  # set True if you want to add 8θ
+if FIT_INCLUDE_8TH and 8 not in FIT_HARMONICS:
+    FIT_HARMONICS = FIT_HARMONICS + [8]
+
+# Detrend (recommended for longer runs)
+# Removes per-rotation baseline offsets *for fitting* to avoid drift smearing the curve.
+DETREND_PER_ROTATION_FOR_FIT = True
+DETREND_STAT = "median"  # "median" or "mean"
+
+
+def parse_fits_dateobs_to_timestamp(dateobs: str) -> float | None:
+    """
+    Parse DATE-OBS to a POSIX timestamp (seconds).
+
+    IMPORTANT: We parse what the string says.
+    - If it ends with 'Z', we treat it as UTC.
+    - If tz-aware (has offset), we respect it.
+    - If tz-naive, we treat it as LOCAL and convert to UTC using system tz rules.
+    """
+    try:
+        if not dateobs:
+            return None
+        s = dateobs.strip()
+
+        if s.endswith("Z"):
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            return dt.timestamp()
+
+        dt = datetime.fromisoformat(s)
+
+        if dt.tzinfo is not None:
+            return dt.timestamp()
+
+        # tz-naive: interpret as local time
+        local_tz = datetime.now().astimezone().tzinfo
+        dt_local = dt.replace(tzinfo=local_tz)
+        return dt_local.astimezone(timezone.utc).timestamp()
+
+    except Exception:
+        return None
 
 
 def load_encoder_data(pkl_path):
     with open(pkl_path, "rb") as f:
         data = pickle.load(f)
+
     encoder_times_ms = np.array(list(data.keys()))
     encoder_counts = np.array(list(data.values()))
-    encoder_times = np.array([
-        datetime.fromtimestamp(ts / 1000.0, tz=timezone.utc)
-        for ts in encoder_times_ms
-    ])
-    encoder_ts_float = np.array([et.timestamp() for et in encoder_times])
+
+    # epoch milliseconds -> epoch seconds (epoch is UTC)
+    encoder_ts_float = encoder_times_ms.astype(np.float64) / 1000.0
     return encoder_ts_float, encoder_counts
 
 
 def find_closest_encoder_angle(fits_ts, encoder_ts_array, encoder_counts):
     if fits_ts < encoder_ts_array[0] or fits_ts > encoder_ts_array[-1]:
         return None
+
     idx = np.searchsorted(encoder_ts_array, fits_ts)
     if idx == 0:
         return encoder_counts[0]
-    elif idx == len(encoder_ts_array):
+    if idx == len(encoder_ts_array):
         return encoder_counts[-1]
+
     before = encoder_ts_array[idx - 1]
     after = encoder_ts_array[idx]
     closest_idx = idx - 1 if abs(fits_ts - before) < abs(fits_ts - after) else idx
     return encoder_counts[closest_idx]
 
 
-def save_plot(x, y, c, xlabel, ylabel, title, outpath):
+def estimate_best_time_offset_seconds(fits_ts_list, encoder_ts_array, debug=False):
+    """
+    Try whole-hour offsets from -12h..+12h and pick the one that yields
+    the most encoder matches (range-based proxy).
+    """
+    if len(fits_ts_list) == 0 or len(encoder_ts_array) == 0:
+        return 0
+
+    sample = fits_ts_list[: min(200, len(fits_ts_list))]
+
+    best_offset = 0
+    best_matches = -1
+
+    for hours in range(-12, 13):
+        off = hours * 3600
+        matches = 0
+        for ts in sample:
+            if ts is None:
+                continue
+            ts2 = ts + off
+            if encoder_ts_array[0] <= ts2 <= encoder_ts_array[-1]:
+                matches += 1
+
+        if matches > best_matches:
+            best_matches = matches
+            best_offset = off
+
+    if debug:
+        print(
+            f"[DEBUG] Auto time-offset search best: {best_offset/3600:+.0f} hours "
+            f"(range-matches in sample={best_matches}/{len(sample)})"
+        )
+
+    return best_offset
+
+
+def per_rotation_detrend(y: np.ndarray, rotations: np.ndarray, stat: str = "median") -> np.ndarray:
+    """
+    Return y' where for each rotation index we subtract that rotation's baseline (median or mean).
+    Useful to remove slow drift between revolutions.
+    """
+    y = y.astype(np.float64, copy=False)
+    rot = rotations.astype(np.int64, copy=False)
+
+    y_out = y.copy()
+    for r in np.unique(rot):
+        m = (rot == r)
+        if not np.any(m):
+            continue
+        base = np.median(y[m]) if stat == "median" else np.mean(y[m])
+        y_out[m] = y_out[m] - base
+    return y_out
+
+
+def build_design_matrix(theta: np.ndarray, harmonics: List[int]) -> np.ndarray:
+    """
+    X columns: [1, cos(kθ), sin(kθ) for k in harmonics]
+    """
+    cols = [np.ones_like(theta, dtype=np.float64)]
+    for k in harmonics:
+        cols.append(np.cos(k * theta))
+        cols.append(np.sin(k * theta))
+    return np.column_stack(cols).astype(np.float64)
+
+
+def fit_fourier(theta: np.ndarray, y: np.ndarray, harmonics: List[int]) -> Optional[Dict[str, float]]:
+    """
+    Fit y(theta) = a0 + Σ_k (a_k cos(kθ) + b_k sin(kθ))
+
+    Returns a dict with:
+      a0, (a2,b2), (a4,b4), ... as available
+      A2,phi2, A4,phi4, psi (from 4θ), R2
+    """
+    if theta.size < FIT_MIN_POINTS:
+        return None
+
+    m = np.isfinite(theta) & np.isfinite(y)
+    theta = theta[m].astype(np.float64)
+    y = y[m].astype(np.float64)
+    if theta.size < FIT_MIN_POINTS:
+        return None
+
+    X = build_design_matrix(theta, harmonics)
+    try:
+        beta, *_ = np.linalg.lstsq(X, y, rcond=None)
+    except Exception:
+        return None
+
+    yhat = X @ beta
+    resid = y - yhat
+
+    ss_res = float(np.sum(resid * resid))
+    ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+    R2 = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else float("nan")
+
+    out: Dict[str, float] = {}
+    out["a0"] = float(beta[0])
+    out["R2"] = float(R2)
+
+    # unpack harmonics
+    idx = 1
+    for k in harmonics:
+        ak = float(beta[idx]); bk = float(beta[idx + 1])
+        out[f"a{k}"] = ak
+        out[f"b{k}"] = bk
+        out[f"A{k}"] = float(np.hypot(ak, bk))
+        out[f"phi{k}"] = float(np.arctan2(bk, ak))
+        idx += 2
+
+    # polarization angle from 4θ phase if present
+    if 4 in harmonics:
+        phi4 = out["phi4"]  # radians
+        psi = phi4 / 4.0
+        out["psi"] = float(psi)
+
+    return out
+
+
+def eval_fourier(theta: np.ndarray, params: Dict[str, float], harmonics: List[int]) -> np.ndarray:
+    y = np.full_like(theta, params.get("a0", 0.0), dtype=np.float64)
+    for k in harmonics:
+        ak = params.get(f"a{k}", 0.0)
+        bk = params.get(f"b{k}", 0.0)
+        y = y + ak * np.cos(k * theta) + bk * np.sin(k * theta)
+    return y
+
+
+def format_fit_label(params: Dict[str, float], harmonics: List[int]) -> str:
+    parts = []
+    if 4 in harmonics and "psi" in params:
+        psi_deg_mod90 = (params["psi"] * 180.0 / np.pi) % 90.0
+        parts.append(f"ψ={psi_deg_mod90:.2f}° (mod 90°)")
+        parts.append(f"A4={params.get('A4', float('nan')):.3g}")
+    if 2 in harmonics:
+        parts.append(f"A2={params.get('A2', float('nan')):.3g}")
+    if 8 in harmonics:
+        parts.append(f"A8={params.get('A8', float('nan')):.3g}")
+    parts.append(f"R²={params.get('R2', float('nan')):.3f}")
+    return "fit: " + ", ".join(parts)
+
+
+def save_scatter_plot(
+    x: np.ndarray,
+    y: np.ndarray,
+    c: np.ndarray,
+    xlabel: str,
+    ylabel: str,
+    title: str,
+    outpath: str,
+    fit_x_is_angle: bool = False,
+    rotations: Optional[np.ndarray] = None,
+):
     plt.figure(figsize=(8, 5))
-    sc = plt.scatter(x, y, c=c, cmap="viridis", s=15, marker='o')
+    sc = plt.scatter(x, y, c=c, cmap="viridis", s=15, marker="o", label="data")
+
+    if fit_x_is_angle and DO_FIT_ON_FOLDED:
+        # For fitting, optionally detrend per rotation
+        y_fit = y
+        # if DETREND_PER_ROTATION_FOR_FIT and rotations is not None:
+        #    y_fit = per_rotation_detrend(y_fit, rotations, stat=DETREND_STAT)
+
+        params = fit_fourier(x, y_fit, FIT_HARMONICS)
+        if params is not None:
+            xs = np.linspace(0.0, 2.0 * np.pi, FIT_EVAL_SAMPLES)
+            ys = eval_fourier(xs, params, FIT_HARMONICS)
+            plt.plot(xs, ys, "-", color="red", linewidth=2.0, label=format_fit_label(params, FIT_HARMONICS))
+
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     plt.title(title)
     plt.colorbar(sc, label="Rotation index")
     plt.grid(True)
+
+    # legend outside
+        # legend above (no squeezing)
+    plt.legend(
+        loc="lower center",
+        bbox_to_anchor=(0.5, 1.20),   # just above the axes
+        ncol=1,
+        frameon=True
+    )
+
+    # Give extra top margin for the legend (and keep room for colorbar automatically)
     plt.tight_layout()
-    plt.savefig(outpath)
+    plt.subplots_adjust(top=0.82)
+
+    # leave room on right for colorbar+legend
+    plt.tight_layout(rect=(0, 0, 0.82, 1))
+
+    plt.savefig(outpath, dpi=150)
     plt.close()
 
 
 def main():
-    if len(sys.argv) != 3:
-        print(f"Usage: {sys.argv[0]} <fits_exposure_dir> <encoder_data.pkl>")
+    # Args:
+    # create-plot.py [--debug] [--time-offset-hours N] <fits_exposure_dir> <encoder_data.pkl>
+    args = sys.argv[1:]
+    DEBUG = False
+    manual_offset_sec = None
+
+    if "--debug" in args:
+        DEBUG = True
+        args.remove("--debug")
+
+    if "--time-offset-hours" in args:
+        i = args.index("--time-offset-hours")
+        try:
+            manual_offset_sec = int(float(args[i + 1]) * 3600)
+        except Exception:
+            print("Error: --time-offset-hours requires a number")
+            sys.exit(1)
+        args.pop(i)  # flag
+        args.pop(i)  # value
+
+    if len(args) != 2:
+        print(f"Usage: {sys.argv[0]} [--debug] [--time-offset-hours N] <fits_exposure_dir> <encoder_data.pkl>")
         sys.exit(1)
 
-    fits_dir = sys.argv[1]
-    encoder_pkl = sys.argv[2]
+    fits_dir = args[0]
+    encoder_pkl = args[1]
+
     fits_path = os.path.join(fits_dir, "processed", "fits")
     plot_base_dir = os.path.join(fits_dir, "plots")
     os.makedirs(plot_base_dir, exist_ok=True)
+
     for folder in plot_types:
         os.makedirs(os.path.join(plot_base_dir, folder), exist_ok=True)
 
@@ -80,77 +331,164 @@ def main():
 
     encoder_ts_array, encoder_counts = load_encoder_data(encoder_pkl)
 
+    if DEBUG:
+        print(f"[DEBUG] Encoder samples: {len(encoder_ts_array)}")
+        print(f"[DEBUG] Encoder time range (s): {encoder_ts_array[0]} -> {encoder_ts_array[-1]}")
+        print(f"[DEBUG] Encoder start UTC: {datetime.fromtimestamp(encoder_ts_array[0], tz=timezone.utc)}")
+        print(f"[DEBUG] Encoder end   UTC: {datetime.fromtimestamp(encoder_ts_array[-1], tz=timezone.utc)}")
+        print(f"[DEBUG] Encoder counts range: {np.min(encoder_counts)} -> {np.max(encoder_counts)}")
+        print(f"[DEBUG] FITS files found: {len(fits_files)}")
+        print(f"[DEBUG] Fit harmonics: {FIT_HARMONICS} (detrend_per_rotation_for_fit={DETREND_PER_ROTATION_FOR_FIT}, stat={DETREND_STAT})")
+
+    # Parse FITS timestamps up front
+    fits_ts_raw = []
+    for f in fits_files:
+        s = fits.getheader(f).get("DATE-OBS")
+        fits_ts_raw.append(parse_fits_dateobs_to_timestamp(s))
+
+    # Determine offset
+    if manual_offset_sec is not None:
+        offset_sec = manual_offset_sec
+        if DEBUG:
+            print(f"[DEBUG] Using MANUAL time offset: {offset_sec/3600:+.0f} hours")
+    else:
+        offset_sec = estimate_best_time_offset_seconds(fits_ts_raw, encoder_ts_array, debug=DEBUG)
+
     # === Use GREEN1 channel explicitly ===
     first_data = fits.getdata(fits_files[0], extname="GREEN1")
     y_max, x_max = np.unravel_index(np.argmax(first_data), first_data.shape)
+
+    if DEBUG:
+        print(f"[DEBUG] Brightest pixel in GREEN1 of first frame: x={x_max}, y={y_max}, value={first_data[y_max, x_max]}")
+        print(f"[DEBUG] GREEN1 shape: {first_data.shape}, dtype={first_data.dtype}")
 
     encoders = []
     angles = []
     rotations = []
     vals = {k: [] for k in plot_types}
 
-    for ffile in fits_files:
-        hdr = fits.getheader(ffile)
-        fits_time_str = hdr.get("DATE-OBS")
+    skip_no_dateobs = 0
+    skip_bad_dateobs = 0
+    skip_no_encoder_match = 0
+    skip_bad_roi = 0
+
+    t0 = time.time()
+    total_files = len(fits_files)
+
+    for i, ffile in enumerate(fits_files, start=1):
+        if i == 1 or i % 200 == 0 or i == total_files:
+            elapsed = time.time() - t0
+            rate = i / elapsed if elapsed > 0 else 0.0
+            print(f"[INFO] Processing FITS {i}/{total_files} ({rate:.1f} files/s)")
+
+        fits_time_str = fits.getheader(ffile).get("DATE-OBS")
         if not fits_time_str:
+            skip_no_dateobs += 1
             continue
-        fits_dt = datetime.fromisoformat(
-            fits_time_str.replace("Z", "+00:00")
-        ) + timedelta(hours=timezone_offset_hours)
-        fits_ts = fits_dt.replace(tzinfo=timezone.utc).timestamp()
 
-        encoder_val = find_closest_encoder_angle(
-            fits_ts, encoder_ts_array, encoder_counts
-        )
+        fits_ts = parse_fits_dateobs_to_timestamp(fits_time_str)
+        if fits_ts is None:
+            skip_bad_dateobs += 1
+            continue
+
+        fits_ts += offset_sec
+
+        encoder_val = find_closest_encoder_angle(fits_ts, encoder_ts_array, encoder_counts)
         if encoder_val is None:
+            skip_no_encoder_match += 1
+            if DEBUG and skip_no_encoder_match <= 5:
+                print(
+                    f"[DEBUG] No encoder match for {os.path.basename(ffile)} fits_ts={fits_ts} "
+                    f"(encoder range {encoder_ts_array[0]}->{encoder_ts_array[-1]})"
+                )
             continue
 
-        # Load GREEN1 channel only
         data = fits.getdata(ffile, extname="GREEN1")
 
-        # Signal ROI (around brightest pixel)
-        roi = data[y_max-1:y_max+2, x_max-1:x_max+2]
-
-        # Background ROI (fixed offset area)
+        # ROI bounds checks
+        if y_max - 1 < 0 or x_max - 1 < 0 or y_max + 2 > data.shape[0] or x_max + 2 > data.shape[1]:
+            skip_bad_roi += 1
+            continue
         by, bx = background_yx
-        background_roi = data[by:by+roi_size, bx:bx+roi_size]
-        background_mean = np.mean(background_roi)
-        background_sum = np.sum(background_roi)
+        if by + roi_size > data.shape[0] or bx + roi_size > data.shape[1]:
+            skip_bad_roi += 1
+            continue
 
-        encoders.append(encoder_val)
-        rel = encoder_val - encoder_counts[0]
-        frac = (rel / counts_per_wheel_rev_guess) % 1
+        roi = data[y_max-1:y_max+2, x_max-1:x_max+2]
+        background_roi = data[by:by+roi_size, bx:bx+roi_size]
+
+        # Safe math (avoid uint16 under/overflow)
+        roi_i32 = roi.astype(np.int32)
+        bg_i32 = background_roi.astype(np.int32)
+
+        encoders.append(int(encoder_val))
+
+        rel = int(encoder_val) - int(encoder_counts[0])
+        frac = (rel / counts_per_wheel_rev_guess) % 1.0
         angles.append(frac * 2 * np.pi)
 
-        # Rotation index (integer turn count of the wheel)
-        rot_index = int(rel // counts_per_wheel_rev_guess)
+        rot_index = int(np.floor(rel / counts_per_wheel_rev_guess))
         rotations.append(rot_index)
 
-        # === Store values ===
-        vals["one_pixel"].append(data[y_max, x_max])
-        vals["all_pixel_sum"].append(np.sum(data))   # no background subtraction
-        vals["all_pixel_avg"].append(np.mean(data))  # no background subtraction
+        # Pixel-by-pixel background subtraction
+        corrected = roi_i32 - bg_i32
 
-        # ROI metrics with background subtraction
-        vals["ROI_sum"].append(np.sum(roi) - background_sum)
-        vals["ROI_average"].append(np.mean(roi) - background_mean)
-        vals["ROI_median"].append(np.median(roi) - background_mean)
+        # Values we keep
+        vals["one_pixel"].append(int(data[y_max, x_max]))
+        vals["ROI_sum"].append(int(np.sum(corrected, dtype=np.int64)))
+        vals["ROI_average"].append(float(np.mean(corrected)))
+        vals["ROI_median"].append(float(np.median(corrected)))
 
-    encoders = np.array(encoders)
-    angles = np.array(angles)
-    rotations = np.array(rotations)
+    encoders = np.array(encoders, dtype=np.int64)
+    angles = np.array(angles, dtype=np.float64)
+    rotations = np.array(rotations, dtype=np.int64)
 
-    for k in plot_types:
-        y = np.array(vals[k])
-        save_plot(encoders, y, rotations,
-                  "Encoder Count", k.replace("_", " ").title(),
-                  f"{k.replace('_', ' ').title()} vs Encoder",
-                  outpath=os.path.join(plot_base_dir, k, f"{k}_vs_encoder.png"))
-        save_plot(angles, y, rotations,
-                  "Plate Angle (rad)", k.replace("_", " ").title(),
-                  f"{k.replace('_', ' ').title()} vs Plate Angle",
-                  outpath=os.path.join(plot_base_dir, k, f"{k}_vs_angle.png"))
+    if DEBUG:
+        print("\n[DEBUG] ===== Summary =====")
+        print(f"[DEBUG] FITS total: {len(fits_files)}")
+        print(f"[DEBUG] matched: {len(encoders)}")
+        print(f"[DEBUG] skip_no_dateobs: {skip_no_dateobs}")
+        print(f"[DEBUG] skip_bad_dateobs: {skip_bad_dateobs}")
+        print(f"[DEBUG] skip_no_encoder_match: {skip_no_encoder_match}")
+        print(f"[DEBUG] skip_bad_roi: {skip_bad_roi}")
+        if len(encoders) == 0:
+            print("[DEBUG] No matched frames. Plots will be empty.")
 
+    print("\n[INFO] Generating plots...")
+    plot_t0 = time.time()
+
+    for j, k in enumerate(plot_types, start=1):
+        print(f"[INFO] Plot {j}/{len(plot_types)}: {k}")
+        y = np.array(vals[k], dtype=np.float64)
+
+        # Unfolded plot (encoder count)
+        save_scatter_plot(
+            encoders,
+            y,
+            rotations,
+            "Encoder Count",
+            k.replace("_", " ").title(),
+            f"{k.replace('_', ' ').title()} vs Encoder",
+            outpath=os.path.join(plot_base_dir, k, f"{k}_vs_encoder.png"),
+            fit_x_is_angle=False,
+            rotations=None,
+        )
+
+        # Folded plot (plate angle) with fit overlay (red)
+        save_scatter_plot(
+            angles,
+            y,
+            rotations,
+            "Plate Angle (rad)",
+            k.replace("_", " ").title(),
+            f"{k.replace('_', ' ').title()} vs Plate Angle",
+            outpath=os.path.join(plot_base_dir, k, f"{k}_vs_angle.png"),
+            fit_x_is_angle=True,
+            rotations=rotations,
+        )
+
+    print(f"[INFO] Plot generation completed in {time.time() - plot_t0:.1f} s")
+    print(f"[INFO] Total runtime: {time.time() - t0:.1f} s")
     print("All plots saved to:", plot_base_dir)
 
 
