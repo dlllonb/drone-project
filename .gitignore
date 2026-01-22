@@ -3,6 +3,9 @@
 *.bin
 *.pkl
 
+# Log files
+.log
+
 # Common data directories
 raw/
 processed/
