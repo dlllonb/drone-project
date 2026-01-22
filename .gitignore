@@ -1,0 +1,11 @@
+# Bulk data products
+*.fits
+*.bin
+*.pkl
+
+# Common data directories
+raw/
+processed/
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
