@@ -30,10 +30,10 @@ FIT_INCLUDE_8TH = False  # set True if you want to add 8θ
 if FIT_INCLUDE_8TH and 8 not in FIT_HARMONICS:
     FIT_HARMONICS = FIT_HARMONICS + [8]
 
-# Detrend (recommended for longer runs)
-# Removes per-rotation baseline offsets *for fitting* to avoid drift smearing the curve.
-DETREND_PER_ROTATION_FOR_FIT = True
-DETREND_STAT = "median"  # "median" or "mean"
+# --- Encoder outlier filtering ---
+FILTER_ENCODER_OUTLIERS = True
+OUTLIER_FACTOR = 5.0  # outlier if |count - median| > OUTLIER_FACTOR * median
+MIN_MEDIAN_FOR_FILTER = 1.0  # if median is tiny, skip this filter
 
 
 def parse_fits_dateobs_to_timestamp(dateobs: str) -> float | None:
@@ -132,24 +132,6 @@ def estimate_best_time_offset_seconds(fits_ts_list, encoder_ts_array, debug=Fals
     return best_offset
 
 
-def per_rotation_detrend(y: np.ndarray, rotations: np.ndarray, stat: str = "median") -> np.ndarray:
-    """
-    Return y' where for each rotation index we subtract that rotation's baseline (median or mean).
-    Useful to remove slow drift between revolutions.
-    """
-    y = y.astype(np.float64, copy=False)
-    rot = rotations.astype(np.int64, copy=False)
-
-    y_out = y.copy()
-    for r in np.unique(rot):
-        m = (rot == r)
-        if not np.any(m):
-            continue
-        base = np.median(y[m]) if stat == "median" else np.mean(y[m])
-        y_out[m] = y_out[m] - base
-    return y_out
-
-
 def build_design_matrix(theta: np.ndarray, harmonics: List[int]) -> np.ndarray:
     """
     X columns: [1, cos(kθ), sin(kθ) for k in harmonics]
@@ -246,18 +228,12 @@ def save_scatter_plot(
     title: str,
     outpath: str,
     fit_x_is_angle: bool = False,
-    rotations: Optional[np.ndarray] = None,
 ):
-    plt.figure(figsize=(8, 5))
+    plt.figure(figsize=(9, 5))
     sc = plt.scatter(x, y, c=c, cmap="viridis", s=15, marker="o", label="data")
 
     if fit_x_is_angle and DO_FIT_ON_FOLDED:
-        # For fitting, optionally detrend per rotation
-        y_fit = y
-        # if DETREND_PER_ROTATION_FOR_FIT and rotations is not None:
-        #    y_fit = per_rotation_detrend(y_fit, rotations, stat=DETREND_STAT)
-
-        params = fit_fourier(x, y_fit, FIT_HARMONICS)
+        params = fit_fourier(x, y, FIT_HARMONICS)
         if params is not None:
             xs = np.linspace(0.0, 2.0 * np.pi, FIT_EVAL_SAMPLES)
             ys = eval_fourier(xs, params, FIT_HARMONICS)
@@ -269,24 +245,51 @@ def save_scatter_plot(
     plt.colorbar(sc, label="Rotation index")
     plt.grid(True)
 
-    # legend outside
-        # legend above (no squeezing)
+    # Legend above plot, with a bit of top margin
     plt.legend(
         loc="lower center",
-        bbox_to_anchor=(0.5, 1.20),   # just above the axes
+        bbox_to_anchor=(0.5, 1.12),
         ncol=1,
-        frameon=True
+        frameon=True,
     )
 
-    # Give extra top margin for the legend (and keep room for colorbar automatically)
     plt.tight_layout()
-    plt.subplots_adjust(top=0.82)
-
-    # leave room on right for colorbar+legend
-    plt.tight_layout(rect=(0, 0, 0.82, 1))
+    plt.subplots_adjust(top=0.80)
 
     plt.savefig(outpath, dpi=150)
     plt.close()
+
+
+def filter_encoder_outliers(encoders: np.ndarray, debug: bool = False) -> np.ndarray:
+    """
+    Returns mask of "good" samples (True = keep).
+    Robust median-based outlier filter.
+    """
+    if encoders.size == 0:
+        return np.array([], dtype=bool)
+
+    med = float(np.median(encoders))
+    if med < MIN_MEDIAN_FOR_FILTER:
+        if debug:
+            print(f"[DEBUG] Encoder median is tiny ({med}); skipping outlier filter.")
+        return np.ones_like(encoders, dtype=bool)
+
+    dev = np.abs(encoders - med)
+    outlier = dev > (OUTLIER_FACTOR * med)
+
+    keep = ~outlier
+    if debug or True:
+        n_out = int(np.sum(outlier))
+        if n_out > 0:
+            print(f"[INFO] Encoder outlier filter: removed {n_out}/{encoders.size} samples "
+                  f"({100.0*n_out/encoders.size:.3f}%), median={med:.3g}, factor={OUTLIER_FACTOR}")
+            # print a few examples
+            bad_vals = encoders[outlier]
+            show = bad_vals[:10]
+            print(f"[INFO] Example outlier encoder values (up to 10): {show.tolist()}")
+        else:
+            print(f"[INFO] Encoder outlier filter: removed 0/{encoders.size} samples (median={med:.3g})")
+    return keep
 
 
 def main():
@@ -338,7 +341,7 @@ def main():
         print(f"[DEBUG] Encoder end   UTC: {datetime.fromtimestamp(encoder_ts_array[-1], tz=timezone.utc)}")
         print(f"[DEBUG] Encoder counts range: {np.min(encoder_counts)} -> {np.max(encoder_counts)}")
         print(f"[DEBUG] FITS files found: {len(fits_files)}")
-        print(f"[DEBUG] Fit harmonics: {FIT_HARMONICS} (detrend_per_rotation_for_fit={DETREND_PER_ROTATION_FOR_FIT}, stat={DETREND_STAT})")
+        print(f"[DEBUG] Fit harmonics: {FIT_HARMONICS}")
 
     # Parse FITS timestamps up front
     fits_ts_raw = []
@@ -362,9 +365,7 @@ def main():
         print(f"[DEBUG] Brightest pixel in GREEN1 of first frame: x={x_max}, y={y_max}, value={first_data[y_max, x_max]}")
         print(f"[DEBUG] GREEN1 shape: {first_data.shape}, dtype={first_data.dtype}")
 
-    encoders = []
-    angles = []
-    rotations = []
+    encoder_vals = []  # store raw encoder values; compute angles later after filtering
     vals = {k: [] for k in plot_types}
 
     skip_no_dateobs = 0
@@ -396,11 +397,6 @@ def main():
         encoder_val = find_closest_encoder_angle(fits_ts, encoder_ts_array, encoder_counts)
         if encoder_val is None:
             skip_no_encoder_match += 1
-            if DEBUG and skip_no_encoder_match <= 5:
-                print(
-                    f"[DEBUG] No encoder match for {os.path.basename(ffile)} fits_ts={fits_ts} "
-                    f"(encoder range {encoder_ts_array[0]}->{encoder_ts_array[-1]})"
-                )
             continue
 
         data = fits.getdata(ffile, extname="GREEN1")
@@ -421,39 +417,50 @@ def main():
         roi_i32 = roi.astype(np.int32)
         bg_i32 = background_roi.astype(np.int32)
 
-        encoders.append(int(encoder_val))
+        corrected = roi_i32 - bg_i32  # pixel-by-pixel background subtraction
 
-        rel = int(encoder_val) - int(encoder_counts[0])
-        frac = (rel / counts_per_wheel_rev_guess) % 1.0
-        angles.append(frac * 2 * np.pi)
+        encoder_vals.append(int(encoder_val))
 
-        rot_index = int(np.floor(rel / counts_per_wheel_rev_guess))
-        rotations.append(rot_index)
-
-        # Pixel-by-pixel background subtraction
-        corrected = roi_i32 - bg_i32
-
-        # Values we keep
         vals["one_pixel"].append(int(data[y_max, x_max]))
         vals["ROI_sum"].append(int(np.sum(corrected, dtype=np.int64)))
         vals["ROI_average"].append(float(np.mean(corrected)))
         vals["ROI_median"].append(float(np.median(corrected)))
 
-    encoders = np.array(encoders, dtype=np.int64)
-    angles = np.array(angles, dtype=np.float64)
-    rotations = np.array(rotations, dtype=np.int64)
+    encoders = np.array(encoder_vals, dtype=np.int64)
 
     if DEBUG:
-        print("\n[DEBUG] ===== Summary =====")
+        print("\n[DEBUG] ===== Match Summary =====")
         print(f"[DEBUG] FITS total: {len(fits_files)}")
         print(f"[DEBUG] matched: {len(encoders)}")
         print(f"[DEBUG] skip_no_dateobs: {skip_no_dateobs}")
         print(f"[DEBUG] skip_bad_dateobs: {skip_bad_dateobs}")
         print(f"[DEBUG] skip_no_encoder_match: {skip_no_encoder_match}")
         print(f"[DEBUG] skip_bad_roi: {skip_bad_roi}")
-        if len(encoders) == 0:
-            print("[DEBUG] No matched frames. Plots will be empty.")
 
+    if len(encoders) == 0:
+        print("[ERR ] No matched frames. Nothing to plot.")
+        sys.exit(1)
+
+    # --- Filter outlier encoder values (and drop corresponding image samples) ---
+    keep_mask = np.ones_like(encoders, dtype=bool)
+    if FILTER_ENCODER_OUTLIERS:
+        keep_mask = filter_encoder_outliers(encoders, debug=DEBUG)
+
+    if not np.all(keep_mask):
+        encoders = encoders[keep_mask]
+        for k in plot_types:
+            vals[k] = list(np.asarray(vals[k])[keep_mask])
+
+    # --- Recompute angles/rotations AFTER filtering ---
+    base = int(encoders[0])  # use first kept sample as baseline
+    rel = encoders.astype(np.int64) - base
+    frac = (rel.astype(np.float64) / float(counts_per_wheel_rev_guess)) % 1.0
+    angles = frac * 2.0 * np.pi
+    rotations = np.floor(rel.astype(np.float64) / float(counts_per_wheel_rev_guess)).astype(np.int64)
+
+    print(f"[INFO] Final samples after filtering: {len(encoders)}")
+
+    # --- Plotting ---
     print("\n[INFO] Generating plots...")
     plot_t0 = time.time()
 
@@ -471,7 +478,6 @@ def main():
             f"{k.replace('_', ' ').title()} vs Encoder",
             outpath=os.path.join(plot_base_dir, k, f"{k}_vs_encoder.png"),
             fit_x_is_angle=False,
-            rotations=None,
         )
 
         # Folded plot (plate angle) with fit overlay (red)
@@ -484,7 +490,6 @@ def main():
             f"{k.replace('_', ' ').title()} vs Plate Angle",
             outpath=os.path.join(plot_base_dir, k, f"{k}_vs_angle.png"),
             fit_x_is_angle=True,
-            rotations=rotations,
         )
 
     print(f"[INFO] Plot generation completed in {time.time() - plot_t0:.1f} s")
