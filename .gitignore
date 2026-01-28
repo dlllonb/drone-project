@@ -4,7 +4,7 @@
 *.pkl
 
 # Log files
-.log
+*.log
 
 # Common data directories
 raw/
