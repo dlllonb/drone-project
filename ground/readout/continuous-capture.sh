@@ -1,8 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
+# Where to create exposures-* (default: current working directory)
+EXPOSURES_ROOT="${EXPOSURES_ROOT:-$(pwd)}"
+
 TIMESTAMP=$(date +%Y%m%d-%H%M%S-$(date +%3N))
-BASE_DIR="exposures-$TIMESTAMP"
+BASE_DIR="${EXPOSURES_ROOT}/exposures-$TIMESTAMP"
 RAW_DIR="$BASE_DIR/raw"
 PROCESSED_DIR="$BASE_DIR/processed"
 mkdir -p "$RAW_DIR" "$PROCESSED_DIR"
@@ -16,6 +19,13 @@ INTERVAL="${INTERVAL:-0.001}"
 
 trap "echo -e '\nStopping capture...'; exit 0" SIGINT
 
-echo "Starting capture. Files will be saved to $RAW_DIR"
+echo "Starting capture."
+echo "Exposures root: ${EXPOSURES_ROOT}"
+echo "Files will be saved to: $RAW_DIR"
 echo "Exposure time: ${EXPOSURE_TIME}s | Gain: ${GAIN} | Interval: ${INTERVAL}s"
-"$CAPTURE_BIN" --output-dir "$RAW_DIR" --exposure-time "$EXPOSURE_TIME" --gain "$GAIN" --interval "$INTERVAL"
+
+"$CAPTURE_BIN" \
+  --output-dir "$RAW_DIR" \
+  --exposure-time "$EXPOSURE_TIME" \
+  --gain "$GAIN" \
+  --interval "$INTERVAL"

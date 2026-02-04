@@ -1,21 +1,40 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Run from readout/ no matter where invoked from
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+# =========================
+# Run-end-to-end script (BASE DIR)
+# Place this file in: ground/   (one level above readout/)
+#
+# Layout assumed:
+#   ground/
+#     run-end-to-end.sh          <-- this script
+#     config.yml
+#     load-config.py
+#     readout/
+#       continuous-capture.sh
+#       process-exposures-batch.py
+#       create-plot.py
+#     motor/
+#       motor-spin-logger.py
+# =========================
 
-MOTOR_SCRIPT="../motor/motor-spin-logger.py"
-CAMERA_SCRIPT="./continuous-capture.sh"
-PROCESS_SCRIPT="./process-exposures-batch.py"
-PLOT_SCRIPT="./create-plot.py"
-LOAD_CONFIG="./load-config.py"
+# Resolve absolute base dir where this script lives (ground/)
+BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$BASE_DIR"
 
+# --- Scripts (absolute paths) ---
+MOTOR_SCRIPT="$BASE_DIR/motor/motor-spin-logger.py"
+CAMERA_SCRIPT="$BASE_DIR/readout/continuous-capture.sh"
+PROCESS_SCRIPT="$BASE_DIR/readout/process-exposures-batch.py"
+PLOT_SCRIPT="$BASE_DIR/readout/create-plot.py"
+LOAD_CONFIG="$BASE_DIR/load-config.py"
+
+# --- Runtime state ---
 MOTOR_PID=""
 CAM_PID=""
 TAIL_PID=""
 
-EXPOSURE_DIR=""
+EXPOSURE_DIR=""   # full path to exposures-*
 CAM_LOG=""
 MOTOR_LOG=""
 
@@ -27,17 +46,20 @@ cleanup_and_exit() {
   echo
   info "Stopping acquisition (camera first, then motor)..."
 
+  # Stop tail first (reduces terminal noise)
   if [[ -n "${TAIL_PID}" ]] && kill -0 "${TAIL_PID}" 2>/dev/null; then
     kill "${TAIL_PID}" 2>/dev/null || true
     wait "${TAIL_PID}" 2>/dev/null || true
   fi
 
+  # Stop camera first
   if [[ -n "${CAM_PID}" ]] && kill -0 "${CAM_PID}" 2>/dev/null; then
     info "Sending SIGINT to camera capture (PID=${CAM_PID})..."
     kill -INT "${CAM_PID}" 2>/dev/null || true
     wait "${CAM_PID}" 2>/dev/null || true
   fi
 
+  # Then stop motor
   if [[ -n "${MOTOR_PID}" ]] && kill -0 "${MOTOR_PID}" 2>/dev/null; then
     info "Sending SIGINT to motor logger (PID=${MOTOR_PID})..."
     kill -INT "${MOTOR_PID}" 2>/dev/null || true
@@ -48,8 +70,8 @@ cleanup_and_exit() {
 }
 trap cleanup_and_exit INT TERM
 
-# ---- args: --config + overrides forwarded to load_config.py ----
-CONFIG_PATH="config.yml"
+# ---- args: --config + overrides forwarded to load-config.py ----
+CONFIG_PATH="$BASE_DIR/config.yml"
 FORWARD_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -59,15 +81,20 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     *)
-      # forward anything else to load_config.py (e.g. --gain 50)
+      # forward anything else to load-config.py (e.g. --gain 50)
       FORWARD_ARGS+=("$1")
       shift
       ;;
   esac
 done
 
+# normalize config path to absolute if user passed relative
+if [[ "$CONFIG_PATH" != /* ]]; then
+  CONFIG_PATH="$BASE_DIR/$CONFIG_PATH"
+fi
+
 # ---- Sanity checks ----
-for f in "$MOTOR_SCRIPT" "$CAMERA_SCRIPT" "$PROCESS_SCRIPT" "$PLOT_SCRIPT" "$LOAD_CONFIG"; do
+for f in "$MOTOR_SCRIPT" "$CAMERA_SCRIPT" "$PROCESS_SCRIPT" "$PLOT_SCRIPT" "$LOAD_CONFIG" "$CONFIG_PATH"; do
   if [[ ! -e "$f" ]]; then
     err "Missing required file: $f"
     exit 1
@@ -82,7 +109,7 @@ eval "$(python3 "$LOAD_CONFIG" --config "$CONFIG_PATH" "${FORWARD_ARGS[@]}")"
 EXPOSURE_TIME="${EXPOSURE_TIME:-0.001}"
 GAIN="${GAIN:-100}"
 INTERVAL="${INTERVAL:-0.001}"
-GROUND_PATH="${GROUND_PATH:-/home/declan/drone-project/ground/}"
+GROUND_PATH="${GROUND_PATH:-$BASE_DIR/}"            # base dir of ground repo
 SPIN_RATE="${SPIN_RATE:-250}"
 
 PROCESS_JOBS="${PROCESS_JOBS:-0}"
@@ -103,31 +130,42 @@ info "Resolved motor: ground_path=${GROUND_PATH} spin_rate=${SPIN_RATE}"
 info "Resolved processing: jobs=${PROCESS_JOBS} fits=${PROCESS_MAKE_FITS} color=${PROCESS_MAKE_COLOR} green=${PROCESS_MAKE_GREEN} quiet=${PROCESS_QUIET}"
 info "Resolved plotting: counts_per_rev=${PLOT_COUNTS_PER_REV} roi_size=${PLOT_ROI_SIZE} bg=(${PLOT_BG_X},${PLOT_BG_Y}) debug=${PLOT_DEBUG} time_offset_hours=${PLOT_TIME_OFFSET_HOURS}"
 
+# =========================
+# Stage 1: Motor logger
+# =========================
 info "Stage 1/4: Starting motor logger (quiet)..."
 python3 -u "$MOTOR_SCRIPT" --ground-path "$GROUND_PATH" --spin-rate "$SPIN_RATE" > /dev/null 2>&1 &
 MOTOR_PID=$!
 info "Motor logger started (PID=${MOTOR_PID})."
 
+# =========================
+# Stage 2: Camera capture
+# =========================
 info "Stage 2/4: Starting camera capture..."
-TMP_CAM_LOG="$(mktemp -p "$SCRIPT_DIR" cam_tmp_XXXXXX.log)"
+TMP_CAM_LOG="$(mktemp -p "$BASE_DIR" cam_tmp_XXXXXX.log)"
 
-# camera script reads EXPOSURE_TIME/GAIN/INTERVAL env vars; export them
+# Ensure exposures-* is created OUTSIDE readout/, in BASE_DIR
 export EXPOSURE_TIME GAIN INTERVAL
+export EXPOSURES_ROOT="$BASE_DIR"
+
 bash "$CAMERA_SCRIPT" >"$TMP_CAM_LOG" 2>&1 &
 CAM_PID=$!
 info "Camera capture started (PID=${CAM_PID})."
 
-info "Waiting for exposures-* folder to be created..."
+# Wait for the exposure folder to appear (created by continuous-capture.sh)
+info "Waiting for exposures-* folder to be created in ${BASE_DIR} ..."
 START_WAIT="$(date +%s)"
 TIMEOUT_SEC=30
 
 while true; do
-  found="$(ls -1dt exposures-* 2>/dev/null | head -n 1 || true)"
+  # newest exposures-* directory in BASE_DIR
+  found="$(ls -1dt "$BASE_DIR"/exposures-* 2>/dev/null | head -n 1 || true)"
   if [[ -n "$found" && -d "$found" ]]; then
     EXPOSURE_DIR="$found"
     break
   fi
 
+  # If camera died early, stop
   if ! kill -0 "$CAM_PID" 2>/dev/null; then
     err "Camera process exited before creating exposures folder. Check $TMP_CAM_LOG"
     exit 1
@@ -148,11 +186,12 @@ info "Found exposure folder: ${EXPOSURE_DIR}"
 CAM_LOG="${EXPOSURE_DIR}/camera.log"
 MOTOR_LOG="${EXPOSURE_DIR}/motor.log"
 
+# Move temp cam log into exposure folder and start following it
 mv "$TMP_CAM_LOG" "$CAM_LOG"
 tail -n +1 -f "$CAM_LOG" &
 TAIL_PID=$!
 
-# Save the resolved config + command used (for reproducibility)
+# Save resolved config + command used (for reproducibility)
 python3 "$LOAD_CONFIG" --config "$CONFIG_PATH" "${FORWARD_ARGS[@]}" --print-resolved > "${EXPOSURE_DIR}/run_config.yaml"
 {
   echo "cwd: $(pwd)"
@@ -160,7 +199,7 @@ python3 "$LOAD_CONFIG" --config "$CONFIG_PATH" "${FORWARD_ARGS[@]}" --print-reso
   echo "command: $0 --config ${CONFIG_PATH} ${FORWARD_ARGS[*]}"
 } > "${EXPOSURE_DIR}/run_command.txt"
 
-# Restart motor logger but log into exposure folder
+# Restart motor logger but now log into exposure folder
 if [[ -n "${MOTOR_PID}" ]] && kill -0 "${MOTOR_PID}" 2>/dev/null; then
   kill -INT "${MOTOR_PID}" 2>/dev/null || true
   wait "${MOTOR_PID}" 2>/dev/null || true
@@ -173,40 +212,51 @@ info "Motor logger restarted with log: ${MOTOR_LOG}"
 info "Capture running. Press Ctrl+C to stop (camera stops first)."
 wait "$CAM_PID" 2>/dev/null || true
 
-# Stop tail
+# Camera ended; stop tail; then stop motor (if still running)
 if [[ -n "${TAIL_PID}" ]] && kill -0 "${TAIL_PID}" 2>/dev/null; then
   kill "${TAIL_PID}" 2>/dev/null || true
   wait "${TAIL_PID}" 2>/dev/null || true
 fi
 
-# Stop motor logger
 if [[ -n "${MOTOR_PID}" ]] && kill -0 "${MOTOR_PID}" 2>/dev/null; then
   info "Camera stopped; now stopping motor logger..."
   kill -INT "${MOTOR_PID}" 2>/dev/null || true
   wait "${MOTOR_PID}" 2>/dev/null || true
 fi
 
-info "Stage 3/4: Locating exposure folder + encoder pkl (searching in readout/)..."
+# =========================
+# Stage 3: Find encoder pkl and move into exposure folder
+# =========================
+info "Stage 3/4: Locating exposure folder + encoder pkl..."
 
-EXPOSURE_DIR="$(ls -1dt exposures-* 2>/dev/null | head -n 1 || true)"
+# Re-resolve exposure dir (newest) as a safety net
+EXPOSURE_DIR="$(ls -1dt "$BASE_DIR"/exposures-* 2>/dev/null | head -n 1 || true)"
 if [[ -z "$EXPOSURE_DIR" ]] || [[ ! -d "$EXPOSURE_DIR" ]]; then
-  err "Could not find an exposures-* directory in $SCRIPT_DIR"
+  err "Could not find an exposures-* directory in $BASE_DIR"
   exit 1
 fi
 info "Using exposure folder: ${EXPOSURE_DIR}"
 
-ENCODER_PKL="$(ls -1t encoder_data_*.pkl 2>/dev/null | head -n 1 || true)"
+# IMPORTANT: encoder pkl is saved to the *working directory where this script was invoked*
+# Find newest encoder_data_*.pkl in CURRENT SHELL PWD at time of invocation?
+# We forced cd "$BASE_DIR" at the top, so the "working directory" for children is BASE_DIR.
+ENCODER_PKL="$(ls -1t "$BASE_DIR"/encoder_data_*.pkl 2>/dev/null | head -n 1 || true)"
 if [[ -z "$ENCODER_PKL" ]] || [[ ! -f "$ENCODER_PKL" ]]; then
-  err "Could not find encoder_data_*.pkl in readout/"
-  ls -1 *.pkl 2>/dev/null || true
+  err "Could not find encoder_data_*.pkl in $BASE_DIR"
+  err "Files in $BASE_DIR matching *.pkl:"
+  ls -1 "$BASE_DIR"/*.pkl 2>/dev/null || true
   exit 1
 fi
 info "Using encoder file: ${ENCODER_PKL}"
 
+# Move encoder pkl into exposure folder (single source of truth)
 mv -f "$ENCODER_PKL" "${EXPOSURE_DIR}/$(basename "$ENCODER_PKL")"
 ENCODER_PKL="${EXPOSURE_DIR}/$(basename "$ENCODER_PKL")"
 info "Moved encoder file into exposure folder: ${ENCODER_PKL}"
 
+# =========================
+# Stage 4: Processing + plotting
+# =========================
 info "Stage 4/4: Processing .bin -> outputs..."
 
 # Build processing flags based on config booleans
@@ -233,6 +283,7 @@ python3 "$PLOT_SCRIPT" "${PLOT_FLAGS[@]}" "$EXPOSURE_DIR" "$ENCODER_PKL"
 
 info "Done."
 info "Outputs:"
+info "  Exposure folder: ${EXPOSURE_DIR}"
 info "  Logs:  ${EXPOSURE_DIR}/camera.log , ${EXPOSURE_DIR}/motor.log"
 info "  Config: ${EXPOSURE_DIR}/run_config.yaml , ${EXPOSURE_DIR}/run_command.txt"
 info "  FITS:  ${EXPOSURE_DIR}/processed/fits/"
