@@ -293,32 +293,41 @@ def filter_encoder_outliers(encoders: np.ndarray, debug: bool = False) -> np.nda
 
 
 def main():
-    # Args:
-    # create-plot.py [--debug] [--time-offset-hours N] <fits_exposure_dir> <encoder_data.pkl>
-    args = sys.argv[1:]
-    DEBUG = False
-    manual_offset_sec = None
+    import argparse
 
-    if "--debug" in args:
-        DEBUG = True
-        args.remove("--debug")
+    # Local defaults from module-level constants
+    default_counts_per_rev = counts_per_wheel_rev_guess
+    default_roi_size = roi_size
+    default_bg_y = background_yx[0]
+    default_bg_x = background_yx[1]
 
-    if "--time-offset-hours" in args:
-        i = args.index("--time-offset-hours")
-        try:
-            manual_offset_sec = int(float(args[i + 1]) * 3600)
-        except Exception:
-            print("Error: --time-offset-hours requires a number")
-            sys.exit(1)
-        args.pop(i)  # flag
-        args.pop(i)  # value
+    parser = argparse.ArgumentParser(description="Create scatter plots from FITS + encoder pickle.")
+    parser.add_argument("--debug", action="store_true", help="Enable debug prints")
+    parser.add_argument("--time-offset-hours", type=float, default=None, help="Manual time offset (hours)")
+    parser.add_argument("--counts-per-rev", type=int, default=default_counts_per_rev,
+                        help="Counts per full plate revolution")
+    parser.add_argument("--roi-size", type=int, default=default_roi_size,
+                        help="ROI size (NxN); signal ROI is still fixed to 3x3 around brightest pixel")
+    parser.add_argument("--background-x", type=int, default=default_bg_x,
+                        help="Background ROI top-left X")
+    parser.add_argument("--background-y", type=int, default=default_bg_y,
+                        help="Background ROI top-left Y")
 
-    if len(args) != 2:
-        print(f"Usage: {sys.argv[0]} [--debug] [--time-offset-hours N] <fits_exposure_dir> <encoder_data.pkl>")
-        sys.exit(1)
+    parser.add_argument("fits_exposure_dir", help="Exposure dir (exposures-...)")
+    parser.add_argument("encoder_pkl", help="encoder_data_*.pkl path")
 
-    fits_dir = args[0]
-    encoder_pkl = args[1]
+    args = parser.parse_args()
+
+    DEBUG = bool(args.debug)
+    manual_offset_sec = int(args.time_offset_hours * 3600) if args.time_offset_hours is not None else None
+
+    # Apply overrides (LOCAL variables; no globals)
+    counts_per_rev = int(args.counts_per_rev)
+    roi_n = int(args.roi_size)
+    background_yx_local = (int(args.background_y), int(args.background_x))
+
+    fits_dir = args.fits_exposure_dir
+    encoder_pkl = args.encoder_pkl  # <-- fixed
 
     fits_path = os.path.join(fits_dir, "processed", "fits")
     plot_base_dir = os.path.join(fits_dir, "plots")
@@ -342,6 +351,7 @@ def main():
         print(f"[DEBUG] Encoder counts range: {np.min(encoder_counts)} -> {np.max(encoder_counts)}")
         print(f"[DEBUG] FITS files found: {len(fits_files)}")
         print(f"[DEBUG] Fit harmonics: {FIT_HARMONICS}")
+        print(f"[DEBUG] counts_per_rev={counts_per_rev} roi_size={roi_n} background_yx={background_yx_local}")
 
     # Parse FITS timestamps up front
     fits_ts_raw = []
@@ -365,7 +375,7 @@ def main():
         print(f"[DEBUG] Brightest pixel in GREEN1 of first frame: x={x_max}, y={y_max}, value={first_data[y_max, x_max]}")
         print(f"[DEBUG] GREEN1 shape: {first_data.shape}, dtype={first_data.dtype}")
 
-    encoder_vals = []  # store raw encoder values; compute angles later after filtering
+    encoder_vals = []
     vals = {k: [] for k in plot_types}
 
     skip_no_dateobs = 0
@@ -401,26 +411,24 @@ def main():
 
         data = fits.getdata(ffile, extname="GREEN1")
 
-        # ROI bounds checks
+        # Signal ROI bounds (still fixed 3x3 around brightest pixel)
         if y_max - 1 < 0 or x_max - 1 < 0 or y_max + 2 > data.shape[0] or x_max + 2 > data.shape[1]:
             skip_bad_roi += 1
             continue
-        by, bx = background_yx
-        if by + roi_size > data.shape[0] or bx + roi_size > data.shape[1]:
+
+        by, bx = background_yx_local
+        if by + roi_n > data.shape[0] or bx + roi_n > data.shape[1]:
             skip_bad_roi += 1
             continue
 
         roi = data[y_max-1:y_max+2, x_max-1:x_max+2]
-        background_roi = data[by:by+roi_size, bx:bx+roi_size]
+        background_roi = data[by:by+roi_n, bx:bx+roi_n]
 
-        # Safe math (avoid uint16 under/overflow)
         roi_i32 = roi.astype(np.int32)
         bg_i32 = background_roi.astype(np.int32)
-
-        corrected = roi_i32 - bg_i32  # pixel-by-pixel background subtraction
+        corrected = roi_i32 - bg_i32
 
         encoder_vals.append(int(encoder_val))
-
         vals["one_pixel"].append(int(data[y_max, x_max]))
         vals["ROI_sum"].append(int(np.sum(corrected, dtype=np.int64)))
         vals["ROI_average"].append(float(np.mean(corrected)))
@@ -441,7 +449,7 @@ def main():
         print("[ERR ] No matched frames. Nothing to plot.")
         sys.exit(1)
 
-    # --- Filter outlier encoder values (and drop corresponding image samples) ---
+    # --- Filter outlier encoder values ---
     keep_mask = np.ones_like(encoders, dtype=bool)
     if FILTER_ENCODER_OUTLIERS:
         keep_mask = filter_encoder_outliers(encoders, debug=DEBUG)
@@ -452,11 +460,11 @@ def main():
             vals[k] = list(np.asarray(vals[k])[keep_mask])
 
     # --- Recompute angles/rotations AFTER filtering ---
-    base = int(encoders[0])  # use first kept sample as baseline
+    base = int(encoders[0])
     rel = encoders.astype(np.int64) - base
-    frac = (rel.astype(np.float64) / float(counts_per_wheel_rev_guess)) % 1.0
+    frac = (rel.astype(np.float64) / float(counts_per_rev)) % 1.0
     angles = frac * 2.0 * np.pi
-    rotations = np.floor(rel.astype(np.float64) / float(counts_per_wheel_rev_guess)).astype(np.int64)
+    rotations = np.floor(rel.astype(np.float64) / float(counts_per_rev)).astype(np.int64)
 
     print(f"[INFO] Final samples after filtering: {len(encoders)}")
 
@@ -468,25 +476,17 @@ def main():
         print(f"[INFO] Plot {j}/{len(plot_types)}: {k}")
         y = np.array(vals[k], dtype=np.float64)
 
-        # Unfolded plot (encoder count)
         save_scatter_plot(
-            encoders,
-            y,
-            rotations,
-            "Encoder Count",
-            k.replace("_", " ").title(),
+            encoders, y, rotations,
+            "Encoder Count", k.replace("_", " ").title(),
             f"{k.replace('_', ' ').title()} vs Encoder",
             outpath=os.path.join(plot_base_dir, k, f"{k}_vs_encoder.png"),
             fit_x_is_angle=False,
         )
 
-        # Folded plot (plate angle) with fit overlay (red)
         save_scatter_plot(
-            angles,
-            y,
-            rotations,
-            "Plate Angle (rad)",
-            k.replace("_", " ").title(),
+            angles, y, rotations,
+            "Plate Angle (rad)", k.replace("_", " ").title(),
             f"{k.replace('_', ' ').title()} vs Plate Angle",
             outpath=os.path.join(plot_base_dir, k, f"{k}_vs_angle.png"),
             fit_x_is_angle=True,

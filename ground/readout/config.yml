@@ -4,6 +4,7 @@ acquisition:
   interval_s: 0.001
 
 motor:
+  base_path: "/home/declan/drone-project/ground/"
   spin_rate: 250
 
 processing:
@@ -11,7 +12,7 @@ processing:
   make_fits: true
   make_color: false
   make_green: false
-  quiet: true
+  quiet: false
 
 plotting:
   counts_per_rev: 2400
@@ -19,4 +20,4 @@ plotting:
   background_y: 50
   background_x: 50
   debug: false
-  time_offset_hours: null  # or number
+  time_offset_hours: null  # number or null
