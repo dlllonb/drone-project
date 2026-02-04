@@ -191,13 +191,13 @@ mv "$TMP_CAM_LOG" "$CAM_LOG"
 tail -n +1 -f "$CAM_LOG" &
 TAIL_PID=$!
 
-# Save resolved config + command used (for reproducibility)
-python3 "$LOAD_CONFIG" --config "$CONFIG_PATH" "${FORWARD_ARGS[@]}" --print-resolved > "${EXPOSURE_DIR}/run_config.yaml"
+# Save resolved config + command used (for reproducibility) AS .log files
+python3 "$LOAD_CONFIG" --config "$CONFIG_PATH" "${FORWARD_ARGS[@]}" --print-resolved > "${EXPOSURE_DIR}/run_config.log"
 {
   echo "cwd: $(pwd)"
   echo "date: $(date -Is)"
   echo "command: $0 --config ${CONFIG_PATH} ${FORWARD_ARGS[*]}"
-} > "${EXPOSURE_DIR}/run_command.txt"
+} > "${EXPOSURE_DIR}/run_command.log"
 
 # Restart motor logger but now log into exposure folder
 if [[ -n "${MOTOR_PID}" ]] && kill -0 "${MOTOR_PID}" 2>/dev/null; then
@@ -237,9 +237,7 @@ if [[ -z "$EXPOSURE_DIR" ]] || [[ ! -d "$EXPOSURE_DIR" ]]; then
 fi
 info "Using exposure folder: ${EXPOSURE_DIR}"
 
-# IMPORTANT: encoder pkl is saved to the *working directory where this script was invoked*
-# Find newest encoder_data_*.pkl in CURRENT SHELL PWD at time of invocation?
-# We forced cd "$BASE_DIR" at the top, so the "working directory" for children is BASE_DIR.
+# encoder pkl is saved to BASE_DIR (we cd'ed there at top)
 ENCODER_PKL="$(ls -1t "$BASE_DIR"/encoder_data_*.pkl 2>/dev/null | head -n 1 || true)"
 if [[ -z "$ENCODER_PKL" ]] || [[ ! -f "$ENCODER_PKL" ]]; then
   err "Could not find encoder_data_*.pkl in $BASE_DIR"
@@ -285,6 +283,6 @@ info "Done."
 info "Outputs:"
 info "  Exposure folder: ${EXPOSURE_DIR}"
 info "  Logs:  ${EXPOSURE_DIR}/camera.log , ${EXPOSURE_DIR}/motor.log"
-info "  Config: ${EXPOSURE_DIR}/run_config.yaml , ${EXPOSURE_DIR}/run_command.txt"
+info "  Config: ${EXPOSURE_DIR}/run_config.log , ${EXPOSURE_DIR}/run_command.log"
 info "  FITS:  ${EXPOSURE_DIR}/processed/fits/"
 info "  Plots: ${EXPOSURE_DIR}/plots/"
