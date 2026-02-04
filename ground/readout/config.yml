@@ -1,0 +1,22 @@
+acquisition:
+  exposure_time_s: 0.001
+  gain: 100
+  interval_s: 0.001
+
+motor:
+  spin_rate: 250
+
+processing:
+  jobs: 0            # 0 => auto (cpu_count-1)
+  make_fits: true
+  make_color: false
+  make_green: false
+  quiet: true
+
+plotting:
+  counts_per_rev: 2400
+  roi_size: 3
+  background_y: 50
+  background_x: 50
+  debug: false
+  time_offset_hours: null  # or number
