@@ -460,11 +460,18 @@ def main():
             vals[k] = list(np.asarray(vals[k])[keep_mask])
 
     # --- Recompute angles/rotations AFTER filtering ---
-    base = int(encoders[0])
-    rel = encoders.astype(np.int64) - base
-    frac = (rel.astype(np.float64) / float(counts_per_rev)) % 1.0
+    # base = int(encoders[0])
+    # rel = encoders.astype(np.int64) - base
+    # frac = (rel.astype(np.float64) / float(counts_per_rev)) % 1.0
+    # angles = frac * 2.0 * np.pi
+    # rotations = np.floor(rel.astype(np.float64) / float(counts_per_rev)).astype(np.int64)
+
+    # --- New Recompute block to attempt to make angles "absolute" ---
+    enc = encoders.astype(np.int64)
+    frac = (enc.astype(np.float64) / float(counts_per_rev)) % 1.0
     angles = frac * 2.0 * np.pi
-    rotations = np.floor(rel.astype(np.float64) / float(counts_per_rev)).astype(np.int64)
+    rotations = (enc // counts_per_rev).astype(np.int64)
+
 
     print(f"[INFO] Final samples after filtering: {len(encoders)}")
 
