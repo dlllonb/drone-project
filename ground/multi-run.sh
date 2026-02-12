@@ -90,7 +90,7 @@ for ((i=1; i<=N; i++)); do
 
   info "Run ${i}/${N} complete."
   echo
-  sleep(2)
+  sleep 2
 done
 
 info "All ${N} runs complete."
