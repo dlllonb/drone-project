@@ -41,8 +41,8 @@ RUN_PID=""
 
 cleanup() {
   if [[ -n "${RUN_PID}" ]] && kill -0 "${RUN_PID}" 2>/dev/null; then
-    warn "Aborting: sending SIGINT to current run (PID=${RUN_PID})..."
-    kill -INT "${RUN_PID}" 2>/dev/null || true
+    warn "Aborting: sending SIGINT to current run process group (PGID=${RUN_PID})..."
+    kill -INT -- "-${RUN_PID}" 2>/dev/null || true
     wait "${RUN_PID}" 2>/dev/null || true
   fi
 }
@@ -61,12 +61,27 @@ for ((i=1; i<=N; i++)); do
   sleep "${DURATION_SEC}"
 
   # Stop acquisition (Ctrl+C equivalent)
-  info "Stopping acquisition (SIGINT)..."
+    info "Stopping acquisition (SIGINT to process group)..."
   if kill -0 "${RUN_PID}" 2>/dev/null; then
-    kill -INT "${RUN_PID}" 2>/dev/null || true
+    # Signal the entire process group (matches how Ctrl+C works in a terminal)
+    kill -INT -- "-${RUN_PID}" 2>/dev/null || true
+
+    # If it didn't exit quickly, escalate to TERM
+    for _ in {1..20}; do
+      if ! kill -0 "${RUN_PID}" 2>/dev/null; then
+        break
+      fi
+      sleep 0.1
+    done
+
+    if kill -0 "${RUN_PID}" 2>/dev/null; then
+      warn "SIGINT did not stop the run quickly; escalating to SIGTERM..."
+      kill -TERM -- "-${RUN_PID}" 2>/dev/null || true
+    fi
   else
     warn "Run process already exited before SIGINT."
   fi
+
 
   # Wait for end-to-end to finish its processing/plotting
   info "Waiting for run-end-to-end.sh to finish processing..."
@@ -75,6 +90,7 @@ for ((i=1; i<=N; i++)); do
 
   info "Run ${i}/${N} complete."
   echo
+  sleep(2)
 done
 
 info "All ${N} runs complete."
