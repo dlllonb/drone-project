@@ -229,6 +229,7 @@ def save_scatter_plot(
     outpath: str,
     fit_x_is_angle: bool = False,
 ):
+    params = None
     plt.figure(figsize=(9, 5))
     sc = plt.scatter(x, y, c=c, cmap="viridis", s=15, marker="o", label="data")
 
@@ -258,6 +259,7 @@ def save_scatter_plot(
 
     plt.savefig(outpath, dpi=150)
     plt.close()
+    return params
 
 
 def filter_encoder_outliers(encoders: np.ndarray, debug: bool = False) -> np.ndarray:
@@ -312,6 +314,9 @@ def main():
                         help="Background ROI top-left X")
     parser.add_argument("--background-y", type=int, default=default_bg_y,
                         help="Background ROI top-left Y")
+    parser.add_argument("--fitlog-dir", default=None,
+                        help="Directory for fit log file (default: <fits_exposure_dir>/plots)")
+
 
     parser.add_argument("fits_exposure_dir", help="Exposure dir (exposures-...)")
     parser.add_argument("encoder_pkl", help="encoder_data_*.pkl path")
@@ -332,6 +337,13 @@ def main():
     fits_path = os.path.join(fits_dir, "processed", "fits")
     plot_base_dir = os.path.join(fits_dir, "plots")
     os.makedirs(plot_base_dir, exist_ok=True)
+
+    fitlog_dir = args.fitlog_dir or plot_base_dir
+    os.makedirs(fitlog_dir, exist_ok=True)
+
+    fitlog_dt = datetime.now().astimezone().strftime("%Y-%m-%d_%H-%M-%S")
+    fitlog_path = os.path.join(fitlog_dir, f"fitlog_{fitlog_dt}.log")
+
 
     for folder in plot_types:
         os.makedirs(os.path.join(plot_base_dir, folder), exist_ok=True)
@@ -476,8 +488,22 @@ def main():
     print(f"[INFO] Final samples after filtering: {len(encoders)}")
 
     # --- Plotting ---
-    print("\n[INFO] Generating plots...")
+    print("\n[INFO] Generating plots and fit log...")
     plot_t0 = time.time()
+
+    # Log the fit information to a file
+    with open(fitlog_path, "w") as flog:
+        flog.write(f"fitlog created: {fitlog_dt}\n")
+        flog.write(f"fits_dir: {fits_dir}\n")
+        flog.write(f"encoder_pkl: {encoder_pkl}\n")
+        flog.write(f"counts_per_rev: {counts_per_rev}\n")
+        flog.write(f"roi_size_bg: {roi_n}\n")
+        flog.write(f"background_yx: {background_yx_local}\n")
+        flog.write(f"time_offset_sec: {offset_sec}\n")
+        flog.write(f"fit_harmonics: {FIT_HARMONICS}\n")
+        flog.write(f"n_samples: {len(encoders)}\n")
+        flog.write("\n# per-trace fits (psi_deg_mod90, A4, A2, R2)\n")
+
 
     for j, k in enumerate(plot_types, start=1):
         print(f"[INFO] Plot {j}/{len(plot_types)}: {k}")
@@ -491,13 +517,24 @@ def main():
             fit_x_is_angle=False,
         )
 
-        save_scatter_plot(
+        params = save_scatter_plot(
             angles, y, rotations,
             "Plate Angle (rad)", k.replace("_", " ").title(),
             f"{k.replace('_', ' ').title()} vs Plate Angle",
             outpath=os.path.join(plot_base_dir, k, f"{k}_vs_angle.png"),
             fit_x_is_angle=True,
         )
+
+        with open(fitlog_path, "a") as flog:
+            if params is None:
+                flog.write(f"{k}: NO_FIT\n")
+            else:
+                psi_deg_mod90 = (params.get("psi", float("nan")) * 180.0 / np.pi) % 90.0
+                A4 = params.get("A4", float("nan"))
+                A2 = params.get("A2", float("nan"))
+                R2 = params.get("R2", float("nan"))
+                flog.write(f"{k}: psi_deg_mod90={psi_deg_mod90:.4f}, A4={A4:.6g}, A2={A2:.6g}, R2={R2:.6f}\n")
+
 
     print(f"[INFO] Plot generation completed in {time.time() - plot_t0:.1f} s")
     print(f"[INFO] Total runtime: {time.time() - t0:.1f} s")
