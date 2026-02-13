@@ -2,6 +2,7 @@ acquisition:
   exposure_time_s: 0.001
   gain: 100
   interval_s: 0.001
+  duration_s: 360   # Set to 0 for manual stop, positive int for duration in seconds
 
 motor:
   base_path: "/home/declan/drone-project/ground/"

@@ -1,10 +1,17 @@
 #!/bin/bash
 set -euo pipefail
 
-# Where to create exposures-* (default: current working directory)
+# Root where exposures-* should be created (default: current dir)
 EXPOSURES_ROOT="${EXPOSURES_ROOT:-$(pwd)}"
 
-TIMESTAMP=$(date +%Y%m%d-%H%M%S-$(date +%3N))
+# Optional run id supplied by run-end-to-end so folders are deterministic
+# If not provided, fall back to a timestamp-based id
+if [[ -n "${RUN_ID:-}" ]]; then
+  TIMESTAMP="$RUN_ID"
+else
+  TIMESTAMP="$(date +%Y%m%d-%H%M%S-$(date +%3N))"
+fi
+
 BASE_DIR="${EXPOSURES_ROOT}/exposures-$TIMESTAMP"
 RAW_DIR="$BASE_DIR/raw"
 PROCESSED_DIR="$BASE_DIR/processed"
@@ -24,8 +31,4 @@ echo "Exposures root: ${EXPOSURES_ROOT}"
 echo "Files will be saved to: $RAW_DIR"
 echo "Exposure time: ${EXPOSURE_TIME}s | Gain: ${GAIN} | Interval: ${INTERVAL}s"
 
-"$CAPTURE_BIN" \
-  --output-dir "$RAW_DIR" \
-  --exposure-time "$EXPOSURE_TIME" \
-  --gain "$GAIN" \
-  --interval "$INTERVAL"
+"$CAPTURE_BIN" --output-dir "$RAW_DIR" --exposure-time "$EXPOSURE_TIME" --gain "$GAIN" --interval "$INTERVAL"
