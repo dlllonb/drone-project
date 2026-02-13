@@ -31,6 +31,7 @@ def main():
     ap.add_argument("--exposure-time", type=float, default=None, help="Override exposure time (seconds)")
     ap.add_argument("--gain", type=int, default=None, help="Override gain")
     ap.add_argument("--interval", type=float, default=None, help="Override interval (seconds)")
+    ap.add_argument("--duration-s", type=float, default=None, help="Override acquisition duration (seconds; 0=manual)")
 
     # motor overrides
     ap.add_argument("--spin-rate", type=int, default=None, help="Override motor spin rate")
@@ -58,6 +59,7 @@ def main():
     exposure_time = deep_get(cfg, "acquisition.exposure_time_s", 0.001)
     gain = deep_get(cfg, "acquisition.gain", 100)
     interval = deep_get(cfg, "acquisition.interval_s", 0.001)
+    duration_s = deep_get(cfg, "acquisition.duration_s", 0)
 
     ground_path = deep_get(cfg, "motor.base_path", "/home/declan/drone-project/ground/")
     spin_rate = deep_get(cfg, "motor.spin_rate", 250)
@@ -82,6 +84,8 @@ def main():
         gain = args.gain
     if args.interval is not None:
         interval = args.interval
+    if args.duration_s is not None:
+        duration_s = args.duration_s
 
     if args.ground_path is not None:
         ground_path = args.ground_path
@@ -119,6 +123,7 @@ def main():
     print(f'export EXPOSURE_TIME="{exposure_time}"')
     print(f'export GAIN="{gain}"')
     print(f'export INTERVAL="{interval}"')
+    print(f'export ACQ_DURATION_S="{duration_s}"')
 
     print(f'export GROUND_PATH="{ground_path}"')
     print(f'export SPIN_RATE="{spin_rate}"')
@@ -142,7 +147,8 @@ def main():
 
     if args.print_resolved:
         resolved = {
-            "acquisition": {"exposure_time_s": exposure_time, "gain": gain, "interval_s": interval},
+            "acquisition": {"exposure_time_s": exposure_time, "gain": gain, 
+                            "interval_s": interval, "duration_s": float(duration_s)},
             "motor": {"base_path": ground_path, "spin_rate": spin_rate},
             "processing": {
                 "jobs": jobs,
