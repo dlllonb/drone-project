@@ -316,7 +316,8 @@ def main():
                         help="Background ROI top-left Y")
     parser.add_argument("--fitlog-dir", default=None,
                         help="Directory for fit log file (default: <fits_exposure_dir>/plots)")
-
+    #parser.add_argument("--fitlog-copy-dir", default=None,
+                       # help="If set, also writes a copy of the fitlog to this directory")
 
     parser.add_argument("fits_exposure_dir", help="Exposure dir (exposures-...)")
     parser.add_argument("encoder_pkl", help="encoder_data_*.pkl path")
@@ -342,8 +343,30 @@ def main():
     os.makedirs(fitlog_dir, exist_ok=True)
 
     fitlog_dt = datetime.now().astimezone().strftime("%Y-%m-%d_%H-%M-%S")
-    fitlog_path = os.path.join(fitlog_dir, f"fitlog_{fitlog_dt}.log")
+    fitlog_name = f"fitlog_{fitlog_dt}.log"
 
+    fitlog_path = os.path.join(fitlog_dir, fitlog_name)
+
+    # NEW: always also copy to ../multi-run-logs/ relative to THIS script location
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    fitlog_copy_dir = os.path.abspath(os.path.join(script_dir, "..", "multi-run-logs"))
+    os.makedirs(fitlog_copy_dir, exist_ok=True)
+
+    fitlog_copy_path = os.path.join(fitlog_copy_dir, fitlog_name)
+
+    # Write to both destinations always
+    fitlog_paths = [fitlog_path, fitlog_copy_path]
+
+    def flog_write(line: str):
+        for p in fitlog_paths:
+            with open(p, "a") as _f:
+                _f.write(line)
+
+    def flog_write(line: str):
+        # write the same line to every fitlog destination
+        for p in fitlog_paths:
+            with open(p, "a") as _f:
+                _f.write(line)
 
     for folder in plot_types:
         os.makedirs(os.path.join(plot_base_dir, folder), exist_ok=True)
@@ -492,17 +515,20 @@ def main():
     plot_t0 = time.time()
 
     # Log the fit information to a file
-    with open(fitlog_path, "w") as flog:
-        flog.write(f"fitlog created: {fitlog_dt}\n")
-        flog.write(f"fits_dir: {fits_dir}\n")
-        flog.write(f"encoder_pkl: {encoder_pkl}\n")
-        flog.write(f"counts_per_rev: {counts_per_rev}\n")
-        flog.write(f"roi_size_bg: {roi_n}\n")
-        flog.write(f"background_yx: {background_yx_local}\n")
-        flog.write(f"time_offset_sec: {offset_sec}\n")
-        flog.write(f"fit_harmonics: {FIT_HARMONICS}\n")
-        flog.write(f"n_samples: {len(encoders)}\n")
-        flog.write("\n# per-trace fits (psi_deg_mod90, A4, A2, R2)\n")
+    for p in fitlog_paths:
+        with open(p, "w") as _f:
+            pass
+
+    flog_write(f"fitlog created: {fitlog_dt}\n")
+    flog_write(f"fits_dir: {fits_dir}\n")
+    flog_write(f"encoder_pkl: {encoder_pkl}\n")
+    flog_write(f"counts_per_rev: {counts_per_rev}\n")
+    flog_write(f"roi_size_bg: {roi_n}\n")
+    flog_write(f"background_yx: {background_yx_local}\n")
+    flog_write(f"time_offset_sec: {offset_sec}\n")
+    flog_write(f"fit_harmonics: {FIT_HARMONICS}\n")
+    flog_write(f"n_samples: {len(encoders)}\n")
+    flog_write("\n# per-trace fits (psi_deg_mod90, A4, A2, R2)\n")
 
 
     for j, k in enumerate(plot_types, start=1):
@@ -525,21 +551,51 @@ def main():
             fit_x_is_angle=True,
         )
 
-        with open(fitlog_path, "a") as flog:
-            if params is None:
-                flog.write(f"{k}: NO_FIT\n")
-            else:
-                psi_deg_mod90 = (params.get("psi", float("nan")) * 180.0 / np.pi) % 90.0
-                A4 = params.get("A4", float("nan"))
-                A2 = params.get("A2", float("nan"))
-                R2 = params.get("R2", float("nan"))
-                flog.write(f"{k}: psi_deg_mod90={psi_deg_mod90:.4f}, A4={A4:.6g}, A2={A2:.6g}, R2={R2:.6f}\n")
+        if params is None:
+            flog_write(f"{k}: NO_FIT\n")
+        else:
+            psi_deg_mod90 = (params.get("psi", float("nan")) * 180.0 / np.pi) % 90.0
+            A4 = params.get("A4", float("nan"))
+            A2 = params.get("A2", float("nan"))
+            R2 = params.get("R2", float("nan"))
+            flog_write(f"{k}: psi_deg_mod90={psi_deg_mod90:.4f}, A4={A4:.6g}, A2={A2:.6g}, R2={R2:.6f}\n")
 
+    # NEW: raw data dump (post-filtering; exactly what was plotted)
+    flog_write("\n# raw_data\n")
+    flog_write("# Columns:\n")
+    flog_write("# idx, encoder_count, rotation_index, plate_angle_rad, " + ", ".join(plot_types) + "\n")
+    flog_write("# Notes:\n")
+    flog_write("# - encoder_count is the matched encoder sample after time-offset + filtering\n")
+    flog_write("# - rotation_index = encoder_count // counts_per_rev\n")
+    flog_write("# - plate_angle_rad = ((encoder_count / counts_per_rev) % 1) * 2*pi\n")
+    flog_write("# - intensity columns correspond to the arrays used for plots\n")
+    flog_write("#\n")
+
+    header = "idx,encoder_count,rotation_index,plate_angle_rad," + ",".join(plot_types) + "\n"
+    flog_write(header)
+
+    # Make sure we have numpy arrays for consistent indexing
+    y_arrays = {k: np.asarray(vals[k]) for k in plot_types}
+
+    for i in range(len(encoders)):
+        row_vals = [
+            str(i),
+            str(int(encoders[i])),
+            str(int(rotations[i])),
+            f"{float(angles[i]):.10g}",
+        ]
+        for k in plot_types:
+            v = y_arrays[k][i]
+            # keep readable formatting
+            if isinstance(v, (np.integer, int)):
+                row_vals.append(str(int(v)))
+            else:
+                row_vals.append(f"{float(v):.10g}")
+        flog_write(",".join(row_vals) + "\n")
 
     print(f"[INFO] Plot generation completed in {time.time() - plot_t0:.1f} s")
     print(f"[INFO] Total runtime: {time.time() - t0:.1f} s")
     print("All plots saved to:", plot_base_dir)
-
 
 if __name__ == "__main__":
     main()
