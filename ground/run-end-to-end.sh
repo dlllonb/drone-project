@@ -284,3 +284,22 @@ info "  Logs:  ${EXPOSURE_DIR}/camera.log , ${EXPOSURE_DIR}/motor.log"
 info "  Config: ${EXPOSURE_DIR}/run_config.log , ${EXPOSURE_DIR}/run_command.log"
 info "  FITS:  ${EXPOSURE_DIR}/processed/fits/"
 info "  Plots: ${EXPOSURE_DIR}/plots/"
+
+# =========================
+# Stage 5: Optional hard cleanup (raw .bin + processed FITS)
+# =========================
+
+CLEAN=1   # <-- set to 0 to disable cleanup
+
+if [[ "$CLEAN" == "1" ]]; then
+  info "Waiting 2 seconds before cleanup..."
+  sleep 2
+
+  info "Deleting raw bin directory: ${EXPOSURE_DIR}/raw"
+  rm -rf "${EXPOSURE_DIR}/raw" || true
+
+  info "Deleting processed FITS directory..."
+  rm -rf "${EXPOSURE_DIR}/processed/fits" || true
+
+  info "Cleanup complete."
+fi
