@@ -21,7 +21,7 @@ roi_size = 3               # roi_size x roi_size for both ROI and background
 
 # Fit config (Fourier model on folded plots only)
 DO_FIT_ON_FOLDED = True
-FIT_MIN_POINTS = 50
+FIT_MIN_POINTS = 20 # THIS MEANS "NO FIT" IF FEWER THAN THIS MANY POINTS
 FIT_EVAL_SAMPLES = 1000
 
 # Which harmonics to include in the fit (2θ + 4θ is usually the first "non-ideal" upgrade)
