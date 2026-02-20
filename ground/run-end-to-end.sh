@@ -4,6 +4,8 @@ set -euo pipefail
 # =========================
 # Run-end-to-end script (BASE DIR)
 # Place this file in: ground/
+
+# To run with config: ./run-end-to-end.sh --config config.yml
 # =========================
 
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
