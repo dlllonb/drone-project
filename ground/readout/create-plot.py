@@ -456,18 +456,31 @@ def main():
             skip_bad_roi += 1
             continue
 
-        roi = data[y_max-1:y_max+2, x_max-1:x_max+2]
-        background_roi = data[by:by+roi_n, bx:bx+roi_n]
+        roi = data[y_max-1:y_max+2, x_max-1:x_max+2].astype(np.float64)
+        background_roi = data[by:by+roi_n, bx:bx+roi_n].astype(np.float64)
 
-        roi_i32 = roi.astype(np.int32)
-        bg_i32 = background_roi.astype(np.int32)
-        corrected = roi_i32 - bg_i32
+        # scalar background estimates
+        bg_mean = float(np.mean(background_roi))
+        bg_median = float(np.median(background_roi))
+
+        # signal metrics (still based on the 3x3 ROI)
+        roi_sum = float(np.sum(roi))
+        roi_mean = float(np.mean(roi))
+        roi_median = float(np.median(roi))
+
+        # background subtract:
+        # - one_pixel: subtract mean(background_roi)
+        # - ROI_sum: subtract mean(background_roi) * Npix(ROI)
+        # - ROI_average: subtract mean(background_roi)
+        # - ROI_median: subtract median(background_roi)
+        n_roi_pix = roi.size  # 9 for 3x3
 
         encoder_vals.append(int(encoder_val))
-        vals["one_pixel"].append(int(data[y_max, x_max]))
-        vals["ROI_sum"].append(int(np.sum(corrected, dtype=np.int64)))
-        vals["ROI_average"].append(float(np.mean(corrected)))
-        vals["ROI_median"].append(float(np.median(corrected)))
+
+        vals["one_pixel"].append(float(data[y_max, x_max]) - bg_mean)
+        vals["ROI_sum"].append(roi_sum - bg_mean * n_roi_pix)
+        vals["ROI_average"].append(roi_mean - bg_mean)
+        vals["ROI_median"].append(roi_median - bg_median)
 
     encoders = np.array(encoder_vals, dtype=np.int64)
 
