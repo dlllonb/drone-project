@@ -13,7 +13,12 @@ processed/
 # Jupyter notebook checkpoints
 .ipynb_checkpoints/
 
+
 # Hiding my Gmail API key
 ground/ip_check/.env
 ground/ip_check/ip_check.log
 ground/ip_check/ip_address.txt
+
+# Local vendor deps (keep locally, don't commit)
+ground/motor/pigpio/
+ground/motor/pigpio-master/
