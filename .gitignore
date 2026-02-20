@@ -12,3 +12,7 @@ processed/
 
 # Jupyter notebook checkpoints
 .ipynb_checkpoints/
+
+# Local vendor deps (keep locally, don't commit)
+ground/motor/pigpio/
+ground/motor/pigpio-master/
