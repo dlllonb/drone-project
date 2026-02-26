@@ -119,9 +119,6 @@ PROCESS_MAKE_GREEN="${PROCESS_MAKE_GREEN:-0}"
 PROCESS_QUIET="${PROCESS_QUIET:-1}"
 
 PLOT_COUNTS_PER_REV="${PLOT_COUNTS_PER_REV:-2400}"
-PLOT_ROI_SIZE="${PLOT_ROI_SIZE:-3}"
-PLOT_BG_X="${PLOT_BG_X:-50}"
-PLOT_BG_Y="${PLOT_BG_Y:-50}"
 PLOT_DEBUG="${PLOT_DEBUG:-0}"
 PLOT_TIME_OFFSET_HOURS="${PLOT_TIME_OFFSET_HOURS:-}"
 
@@ -130,7 +127,7 @@ ACQ_DURATION_S="${ACQ_DURATION_S:-0}"
 info "Resolved acquisition: exposure=${EXPOSURE_TIME}s gain=${GAIN} interval=${INTERVAL}s duration_s=${ACQ_DURATION_S}"
 info "Resolved motor: ground_path=${GROUND_PATH} spin_rate=${SPIN_RATE}"
 info "Resolved processing: jobs=${PROCESS_JOBS} fits=${PROCESS_MAKE_FITS} color=${PROCESS_MAKE_COLOR} green=${PROCESS_MAKE_GREEN} quiet=${PROCESS_QUIET}"
-info "Resolved plotting: counts_per_rev=${PLOT_COUNTS_PER_REV} roi_size=${PLOT_ROI_SIZE} bg=(${PLOT_BG_X},${PLOT_BG_Y}) debug=${PLOT_DEBUG} time_offset_hours=${PLOT_TIME_OFFSET_HOURS}"
+info "Resolved plotting: counts_per_rev=${PLOT_COUNTS_PER_REV} debug=${PLOT_DEBUG} time_offset_hours=${PLOT_TIME_OFFSET_HOURS}"
 
 # Deterministic run id/folder
 RUN_ID="$(date +%Y%m%d-%H%M%S-$(date +%3N))_$$"
@@ -270,8 +267,6 @@ python3 "$PROCESS_SCRIPT" "$EXPOSURE_DIR" "${PROC_FLAGS[@]}"
 
 PLOT_FLAGS=()
 PLOT_FLAGS+=(--counts-per-rev "$PLOT_COUNTS_PER_REV")
-PLOT_FLAGS+=(--roi-size "$PLOT_ROI_SIZE")
-PLOT_FLAGS+=(--background-x "$PLOT_BG_X" --background-y "$PLOT_BG_Y")
 if [[ "$PLOT_DEBUG" == "1" ]]; then PLOT_FLAGS+=(--debug); fi
 if [[ -n "$PLOT_TIME_OFFSET_HOURS" ]]; then
   PLOT_FLAGS+=(--time-offset-hours "$PLOT_TIME_OFFSET_HOURS")

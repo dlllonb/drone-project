@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import yaml
 
@@ -46,16 +46,13 @@ def main():
 
     # plotting overrides
     ap.add_argument("--counts-per-rev", type=int, default=None, help="Override counts_per_rev")
-    ap.add_argument("--roi-size", type=int, default=None, help="Override roi_size")
-    ap.add_argument("--background-x", type=int, default=None, help="Override background_x")
-    ap.add_argument("--background-y", type=int, default=None, help="Override background_y")
     ap.add_argument("--plot-debug", type=int, choices=[0, 1], default=None, help="Override debug (1/0)")
     ap.add_argument("--time-offset-hours", type=float, default=None, help="Override time_offset_hours (float)")
 
     args = ap.parse_args()
     cfg = load_yaml(args.config)
 
-    # ---- defaults (match your previous hard-coded behavior) ----
+    # ---- defaults ----
     exposure_time = deep_get(cfg, "acquisition.exposure_time_s", 0.001)
     gain = deep_get(cfg, "acquisition.gain", 100)
     interval = deep_get(cfg, "acquisition.interval_s", 0.001)
@@ -71,9 +68,6 @@ def main():
     quiet = deep_get(cfg, "processing.quiet", False)
 
     counts_per_rev = deep_get(cfg, "plotting.counts_per_rev", 2400)
-    roi_size = deep_get(cfg, "plotting.roi_size", 3)
-    bgx = deep_get(cfg, "plotting.background_x", 50)
-    bgy = deep_get(cfg, "plotting.background_y", 50)
     plot_debug = deep_get(cfg, "plotting.debug", False)
     time_offset_hours = deep_get(cfg, "plotting.time_offset_hours", None)
 
@@ -105,12 +99,6 @@ def main():
 
     if args.counts_per_rev is not None:
         counts_per_rev = args.counts_per_rev
-    if args.roi_size is not None:
-        roi_size = args.roi_size
-    if args.background_x is not None:
-        bgx = args.background_x
-    if args.background_y is not None:
-        bgy = args.background_y
     if args.plot_debug is not None:
         plot_debug = bool(args.plot_debug)
     if args.time_offset_hours is not None:
@@ -135,9 +123,6 @@ def main():
     print(f'export PROCESS_QUIET="{shbool(bool(quiet))}"')
 
     print(f'export PLOT_COUNTS_PER_REV="{counts_per_rev}"')
-    print(f'export PLOT_ROI_SIZE="{roi_size}"')
-    print(f'export PLOT_BG_X="{bgx}"')
-    print(f'export PLOT_BG_Y="{bgy}"')
     print(f'export PLOT_DEBUG="{shbool(bool(plot_debug))}"')
 
     if time_offset_hours is None:
@@ -159,9 +144,6 @@ def main():
             },
             "plotting": {
                 "counts_per_rev": counts_per_rev,
-                "roi_size": roi_size,
-                "background_x": bgx,
-                "background_y": bgy,
                 "debug": bool(plot_debug),
                 "time_offset_hours": time_offset_hours,
             },

@@ -17,8 +17,5 @@ processing:
 
 plotting:
   counts_per_rev: 2400
-  roi_size: 3   # remove this after implementing ROI tracking and related background subtraction
-  background_y: 50    # ^
-  background_x: 50    # ^^
   debug: false
   time_offset_hours: null  # number or null
