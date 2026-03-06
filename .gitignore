@@ -1,3 +1,7 @@
+# Compile files
+*.o
+*.out
+
 # Bulk data products
 *.fits
 *.bin
@@ -12,7 +16,6 @@ processed/
 
 # Jupyter notebook checkpoints
 .ipynb_checkpoints/
-
 
 # Hiding my Gmail API key
 ground/ip_check/.env
