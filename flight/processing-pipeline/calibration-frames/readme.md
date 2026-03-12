@@ -1,0 +1,1 @@
+This is the directory where the calibration frames are assumed to be
