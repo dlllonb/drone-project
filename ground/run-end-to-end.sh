@@ -1,12 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# =========================
+# ===============================================
 # Run-end-to-end script (BASE DIR)
 # Place this file in: ground/
 
 # To run with config: ./run-end-to-end.sh --config config.yml
-# =========================
+
+# To run detached from SSH connection:
+#   If control is needed later:
+#     Start tmux session: tmux new -s polarimeter
+#     Run script inside tmux: ./run-end-to-end.sh --config config.yml
+#     Detach without stopping the run: Ctrl+b then d
+
+#     To reattach later: tmux attach -t polarimeter
+  
+#   Alternative: nohup ./run-end-to-end.sh > run-end-to-end.nohup.log 2>&1 & disown
+# ===============================================
 
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$BASE_DIR"
@@ -16,6 +26,7 @@ CAMERA_SCRIPT="$BASE_DIR/readout/continuous-capture.sh"
 PROCESS_SCRIPT="$BASE_DIR/readout/process-exposures-batch.py"
 PLOT_SCRIPT="$BASE_DIR/readout/create-plot.py"
 LOAD_CONFIG="$BASE_DIR/load-config.py"
+ANIMATION_SCRIPT="$BASE_DIR/readout/create-animation.py"
 
 # PIDs (also PGIDs because we launch with setsid)
 MOTOR_PID=""
@@ -95,7 +106,7 @@ if [[ "$CONFIG_PATH" != /* ]]; then
   CONFIG_PATH="$BASE_DIR/$CONFIG_PATH"
 fi
 
-for f in "$MOTOR_SCRIPT" "$CAMERA_SCRIPT" "$PROCESS_SCRIPT" "$PLOT_SCRIPT" "$LOAD_CONFIG" "$CONFIG_PATH"; do
+for f in "$MOTOR_SCRIPT" "$CAMERA_SCRIPT" "$PROCESS_SCRIPT" "$PLOT_SCRIPT" "$LOAD_CONFIG" "$CONFIG_PATH" "$ANIMATION_SCRIPT"; do
   if [[ ! -e "$f" ]]; then
     err "Missing required file: $f"
     exit 1
@@ -119,18 +130,17 @@ PROCESS_MAKE_GREEN="${PROCESS_MAKE_GREEN:-0}"
 PROCESS_QUIET="${PROCESS_QUIET:-1}"
 
 PLOT_COUNTS_PER_REV="${PLOT_COUNTS_PER_REV:-2400}"
-PLOT_ROI_SIZE="${PLOT_ROI_SIZE:-3}"
-PLOT_BG_X="${PLOT_BG_X:-50}"
-PLOT_BG_Y="${PLOT_BG_Y:-50}"
 PLOT_DEBUG="${PLOT_DEBUG:-0}"
 PLOT_TIME_OFFSET_HOURS="${PLOT_TIME_OFFSET_HOURS:-}"
+PLOT_SAVE_ROI_OVERLAYS="${PLOT_SAVE_ROI_OVERLAYS:-0}"
+PLOT_MAKE_ROI_GIF="${PLOT_MAKE_ROI_GIF:-0}"
 
 ACQ_DURATION_S="${ACQ_DURATION_S:-0}"
 
 info "Resolved acquisition: exposure=${EXPOSURE_TIME}s gain=${GAIN} interval=${INTERVAL}s duration_s=${ACQ_DURATION_S}"
 info "Resolved motor: ground_path=${GROUND_PATH} spin_rate=${SPIN_RATE}"
 info "Resolved processing: jobs=${PROCESS_JOBS} fits=${PROCESS_MAKE_FITS} color=${PROCESS_MAKE_COLOR} green=${PROCESS_MAKE_GREEN} quiet=${PROCESS_QUIET}"
-info "Resolved plotting: counts_per_rev=${PLOT_COUNTS_PER_REV} roi_size=${PLOT_ROI_SIZE} bg=(${PLOT_BG_X},${PLOT_BG_Y}) debug=${PLOT_DEBUG} time_offset_hours=${PLOT_TIME_OFFSET_HOURS}"
+info "Resolved plotting: counts_per_rev=${PLOT_COUNTS_PER_REV} debug=${PLOT_DEBUG} time_offset_hours=${PLOT_TIME_OFFSET_HOURS} save_roi_overlays=${PLOT_SAVE_ROI_OVERLAYS} make_roi_gif=${PLOT_MAKE_ROI_GIF}"
 
 # Deterministic run id/folder
 RUN_ID="$(date +%Y%m%d-%H%M%S-$(date +%3N))_$$"
@@ -270,14 +280,31 @@ python3 "$PROCESS_SCRIPT" "$EXPOSURE_DIR" "${PROC_FLAGS[@]}"
 
 PLOT_FLAGS=()
 PLOT_FLAGS+=(--counts-per-rev "$PLOT_COUNTS_PER_REV")
-PLOT_FLAGS+=(--roi-size "$PLOT_ROI_SIZE")
-PLOT_FLAGS+=(--background-x "$PLOT_BG_X" --background-y "$PLOT_BG_Y")
 if [[ "$PLOT_DEBUG" == "1" ]]; then PLOT_FLAGS+=(--debug); fi
 if [[ -n "$PLOT_TIME_OFFSET_HOURS" ]]; then
   PLOT_FLAGS+=(--time-offset-hours "$PLOT_TIME_OFFSET_HOURS")
 fi
+if [[ "$PLOT_SAVE_ROI_OVERLAYS" == "1" ]]; then
+  PLOT_FLAGS+=(--save-roi-overlays)
+fi
 
 python3 "$PLOT_SCRIPT" "${PLOT_FLAGS[@]}" "$EXPOSURE_DIR" "$ENCODER_PKL"
+
+if [[ "$PLOT_MAKE_ROI_GIF" == "1" ]]; then
+  info "Creating ROI tracking GIF..."
+
+  ROI_OVERLAY_DIR="$EXPOSURE_DIR/plots/roi_overlays"
+  ROI_GIF_PATH="$EXPOSURE_DIR/roi_tracking.gif"
+
+  if [[ -d "$ROI_OVERLAY_DIR" ]]; then
+    python3 "$ANIMATION_SCRIPT" \
+      --input-dir "$ROI_OVERLAY_DIR" \
+      --output "$ROI_GIF_PATH"
+  else
+    warn "ROI overlay directory not found: $ROI_OVERLAY_DIR"
+    warn "Skipping ROI GIF creation."
+  fi
+fi
 
 info "Done."
 info "Outputs:"
@@ -286,6 +313,7 @@ info "  Logs:  ${EXPOSURE_DIR}/camera.log , ${EXPOSURE_DIR}/motor.log"
 info "  Config: ${EXPOSURE_DIR}/run_config.log , ${EXPOSURE_DIR}/run_command.log"
 info "  FITS:  ${EXPOSURE_DIR}/processed/fits/"
 info "  Plots: ${EXPOSURE_DIR}/plots/"
+info "  ROI GIF: ${EXPOSURE_DIR}/roi_tracking.gif"
 
 # =========================
 # Stage 5: Optional hard cleanup (raw .bin + processed FITS)

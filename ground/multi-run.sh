@@ -9,10 +9,22 @@ set -euo pipefail
 #   ./multi-run.sh 3 10
 #   ./multi-run.sh 2 45 -- --gain 80 --interval 0.002
 #   ./multi-run.sh 5 60 -- --config config.yml
+#   ./multi-run.sh 3 60 -- --save-roi-overlays 1 --make-roi-gif 1
 #
 # Notes:
 # - DURATION_SEC is passed as "--duration-s" which your load-config.py understands.
 # - This runs sequentially (run 1 finishes processing/plotting before run 2 starts).
+
+# To run detached from SSH connection:
+#   If control is needed later:
+#     Start tmux session: tmux new -s polarimeter
+#     Run script inside tmux: ./multi-run.sh
+#     Detach without stopping the run: Ctrl+b then d
+
+#     To reattach later: tmux attach -t polarimeter
+  
+#   Alternative: nohup ./multi-run.sh > multi-run.nohup.log 2>&1 & disown
+# ===============================================
 
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN_SCRIPT="$BASE_DIR/run-end-to-end.sh"
