@@ -22,16 +22,20 @@ def load_yaml(path: str) -> Dict[str, Any]:
         return yaml.safe_load(f) or {}
 
 
+def shbool(x: bool) -> str:
+    return "1" if x else "0"
+
+
 def main():
     ap = argparse.ArgumentParser(description="Load YAML config and emit shell exports.")
-    ap.add_argument("--config", default="config.yaml", help="Path to config.yaml (default: ./config.yaml)")
-    ap.add_argument("--print-resolved", action="store_true", help="Print resolved YAML to stdout (debug)")
+    ap.add_argument("--config", default="config.yml", help="Path to config.yml")
+    ap.add_argument("--print-resolved", action="store_true", help="Print resolved YAML to stdout")
 
     # acquisition overrides
     ap.add_argument("--exposure-time", type=float, default=None, help="Override exposure time (seconds)")
     ap.add_argument("--gain", type=int, default=None, help="Override gain")
     ap.add_argument("--interval", type=float, default=None, help="Override interval (seconds)")
-    ap.add_argument("--duration-s", type=float, default=None, help="Override acquisition duration (seconds; 0=manual)")
+    ap.add_argument("--duration-s", type=float, default=None, help="Override acquisition duration in seconds (0=manual)")
 
     # motor overrides
     ap.add_argument("--spin-rate", type=int, default=None, help="Override motor spin rate")
@@ -43,18 +47,22 @@ def main():
     ap.add_argument("--make-color", type=int, choices=[0, 1], default=None, help="Override make_color (1/0)")
     ap.add_argument("--make-green", type=int, choices=[0, 1], default=None, help="Override make_green (1/0)")
     ap.add_argument("--quiet", type=int, choices=[0, 1], default=None, help="Override quiet (1/0)")
+    ap.add_argument("--cleanup-after-processing", type=int, choices=[0, 1], default=None,
+                    help="Override cleanup_after_processing (1/0)")
 
     # plotting overrides
     ap.add_argument("--counts-per-rev", type=int, default=None, help="Override counts_per_rev")
     ap.add_argument("--plot-debug", type=int, choices=[0, 1], default=None, help="Override debug (1/0)")
-    ap.add_argument("--time-offset-hours", type=float, default=None, help="Override time_offset_hours (float)")
-    ap.add_argument("--save-roi-overlays", type=int, choices=[0, 1], default=None, help="Override save_roi_overlays (1/0)")
-    ap.add_argument("--make-roi-gif", type=int, choices=[0, 1], default=None, help="Override make_roi_gif (1/0)")
+    ap.add_argument("--time-offset-hours", type=float, default=None, help="Override time_offset_hours")
+    ap.add_argument("--save-roi-overlays", type=int, choices=[0, 1], default=None,
+                    help="Override save_roi_overlays (1/0)")
+    ap.add_argument("--make-roi-gif", type=int, choices=[0, 1], default=None,
+                    help="Override make_roi_gif (1/0)")
 
     args = ap.parse_args()
     cfg = load_yaml(args.config)
 
-    # ---- defaults ----
+    # defaults
     exposure_time = deep_get(cfg, "acquisition.exposure_time_s", 0.001)
     gain = deep_get(cfg, "acquisition.gain", 100)
     interval = deep_get(cfg, "acquisition.interval_s", 0.001)
@@ -68,6 +76,7 @@ def main():
     make_color = deep_get(cfg, "processing.make_color", False)
     make_green = deep_get(cfg, "processing.make_green", False)
     quiet = deep_get(cfg, "processing.quiet", False)
+    cleanup_after_processing = deep_get(cfg, "processing.cleanup_after_processing", False)
 
     counts_per_rev = deep_get(cfg, "plotting.counts_per_rev", 2400)
     plot_debug = deep_get(cfg, "plotting.debug", False)
@@ -75,7 +84,7 @@ def main():
     save_roi_overlays = deep_get(cfg, "plotting.save_roi_overlays", False)
     make_roi_gif = deep_get(cfg, "plotting.make_roi_gif", False)
 
-    # ---- apply CLI overrides (if provided) ----
+    # CLI overrides
     if args.exposure_time is not None:
         exposure_time = args.exposure_time
     if args.gain is not None:
@@ -100,6 +109,8 @@ def main():
         make_green = bool(args.make_green)
     if args.quiet is not None:
         quiet = bool(args.quiet)
+    if args.cleanup_after_processing is not None:
+        cleanup_after_processing = bool(args.cleanup_after_processing)
 
     if args.counts_per_rev is not None:
         counts_per_rev = args.counts_per_rev
@@ -112,10 +123,7 @@ def main():
     if args.make_roi_gif is not None:
         make_roi_gif = bool(args.make_roi_gif)
 
-    # ---- emit shell exports (for bash eval) ----
-    def shbool(x: bool) -> str:
-        return "1" if x else "0"
-
+    # emit shell exports
     print(f'export EXPOSURE_TIME="{exposure_time}"')
     print(f'export GAIN="{gain}"')
     print(f'export INTERVAL="{interval}"')
@@ -129,6 +137,7 @@ def main():
     print(f'export PROCESS_MAKE_COLOR="{shbool(bool(make_color))}"')
     print(f'export PROCESS_MAKE_GREEN="{shbool(bool(make_green))}"')
     print(f'export PROCESS_QUIET="{shbool(bool(quiet))}"')
+    print(f'export PROCESS_CLEANUP_AFTER="{shbool(bool(cleanup_after_processing))}"')
 
     print(f'export PLOT_COUNTS_PER_REV="{counts_per_rev}"')
     print(f'export PLOT_DEBUG="{shbool(bool(plot_debug))}"')
@@ -142,15 +151,23 @@ def main():
 
     if args.print_resolved:
         resolved = {
-            "acquisition": {"exposure_time_s": exposure_time, "gain": gain, 
-                            "interval_s": interval, "duration_s": float(duration_s)},
-            "motor": {"base_path": ground_path, "spin_rate": spin_rate},
+            "acquisition": {
+                "exposure_time_s": exposure_time,
+                "gain": gain,
+                "interval_s": interval,
+                "duration_s": float(duration_s),
+            },
+            "motor": {
+                "base_path": ground_path,
+                "spin_rate": spin_rate,
+            },
             "processing": {
                 "jobs": jobs,
                 "make_fits": bool(make_fits),
                 "make_color": bool(make_color),
                 "make_green": bool(make_green),
                 "quiet": bool(quiet),
+                "cleanup_after_processing": bool(cleanup_after_processing),
             },
             "plotting": {
                 "counts_per_rev": counts_per_rev,
