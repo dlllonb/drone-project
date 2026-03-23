@@ -63,6 +63,10 @@ Specify counts per revolution:
 
     python3 create-plot.py --counts-per-rev 2400 exposures-... encoder_data_....pkl
 
+Specify wrapped encoder modulus:
+
+    python3 create-plot.py --encoder-modulus 400 exposures-... encoder_data_....pkl
+
 Apply manual time offset (hours):
 
     python3 create-plot.py --time-offset-hours -5 exposures-... encoder_data_....pkl
@@ -100,12 +104,13 @@ from typing import Optional, Dict, Tuple, List
 
 # === CONFIG ===
 counts_per_wheel_rev_guess = 2400
+encoder_count_modulus_guess = 400
 plot_types = ["one_pixel", "ROI_sum", "ROI_average", "ROI_median"]
 PROGRESS_UPDATE_SEC = 2.0  # print progress at least this often during FITS loop
 
 # Fit config (Fourier model on folded plots only)
 DO_FIT_ON_FOLDED = True
-FIT_MIN_POINTS = 20 # THIS MEANS "NO FIT" IF FEWER THAN THIS MANY POINTS
+FIT_MIN_POINTS = 20  # THIS MEANS "NO FIT" IF FEWER THAN THIS MANY POINTS
 FIT_EVAL_SAMPLES = 1000
 
 # Which harmonics to include in the fit (2θ + 4θ is usually the first "non-ideal" upgrade)
@@ -185,6 +190,41 @@ def find_closest_encoder_angle(fits_ts, encoder_ts_array, encoder_counts):
     after = encoder_ts_array[idx]
     closest_idx = idx - 1 if abs(fits_ts - before) < abs(fits_ts - after) else idx
     return encoder_counts[closest_idx]
+
+
+def unwrap_encoder_counts(counts: np.ndarray, modulus: int) -> np.ndarray:
+    """
+    Convert wrapped encoder counts (e.g. 0..399 repeating) into a cumulative
+    unwrapped count sequence.
+
+    Example:
+        [398, 399, 0, 1, 2] -> [398, 399, 400, 401, 402]
+
+    Assumes motion is mostly continuous between samples.
+    """
+    if counts.size == 0:
+        return counts.astype(np.int64)
+
+    counts = counts.astype(np.int64)
+    unwrapped = np.empty_like(counts, dtype=np.int64)
+    unwrapped[0] = counts[0]
+
+    half_mod = modulus // 2
+    offset = 0
+
+    for i in range(1, len(counts)):
+        diff = counts[i] - counts[i - 1]
+
+        # forward wrap: e.g. 399 -> 0
+        if diff < -half_mod:
+            offset += modulus
+        # backward wrap: e.g. 0 -> 399
+        elif diff > half_mod:
+            offset -= modulus
+
+        unwrapped[i] = counts[i] + offset
+
+    return unwrapped
 
 
 def estimate_best_time_offset_seconds(fits_ts_list, encoder_ts_array, debug=False):
@@ -337,7 +377,6 @@ def save_scatter_plot(
     plt.colorbar(sc, label="Rotation index")
     plt.grid(True)
 
-    # Legend above plot, with a bit of top margin
     plt.legend(
         loc="lower center",
         bbox_to_anchor=(0.5, 1.12),
@@ -376,7 +415,6 @@ def filter_encoder_outliers(encoders: np.ndarray, debug: bool = False) -> np.nda
         if n_out > 0:
             print(f"[INFO] Encoder outlier filter: removed {n_out}/{encoders.size} samples "
                   f"({100.0*n_out/encoders.size:.3f}%), median={med:.3g}, factor={OUTLIER_FACTOR}")
-            # print a few examples
             bad_vals = encoders[outlier]
             show = bad_vals[:10]
             print(f"[INFO] Example outlier encoder values (up to 10): {show.tolist()}")
@@ -385,7 +423,6 @@ def filter_encoder_outliers(encoders: np.ndarray, debug: bool = False) -> np.nda
     return keep
 
 
-# Helpers for ROI detection + background estimation
 def _flood_fill_bbox(mask: np.ndarray, sy: int, sx: int) -> Optional[Tuple[int, int, int, int, int]]:
     """
     Flood-fill from seed (sy,sx) over True pixels in mask.
@@ -406,12 +443,15 @@ def _flood_fill_bbox(mask: np.ndarray, sy: int, sx: int) -> Optional[Tuple[int, 
     while stack:
         y, x = stack.pop()
         area += 1
-        if y < y0: y0 = y
-        if y > y1: y1 = y
-        if x < x0: x0 = x
-        if x > x1: x1 = x
+        if y < y0:
+            y0 = y
+        if y > y1:
+            y1 = y
+        if x < x0:
+            x0 = x
+        if x > x1:
+            x1 = x
 
-        # 4-neighborhood
         if y > 0 and mask2[y - 1, x]:
             mask2[y - 1, x] = False
             stack.append((y - 1, x))
@@ -425,7 +465,6 @@ def _flood_fill_bbox(mask: np.ndarray, sy: int, sx: int) -> Optional[Tuple[int, 
             mask2[y, x + 1] = False
             stack.append((y, x + 1))
 
-    # make exclusive bounds
     return (y0, y1 + 1, x0, x1 + 1, area)
 
 
@@ -456,13 +495,11 @@ def detect_signal_roi_bbox(data: np.ndarray, debug: bool = False) -> Optional[Tu
             print(f"[DEBUG] Blob too small (area={area}), skipping frame.")
         return None
 
-    # pad bbox
     y0 = max(0, y0 - ROI_PAD_PX)
     x0 = max(0, x0 - ROI_PAD_PX)
     y1 = min(h, y1 + ROI_PAD_PX)
     x1 = min(w, x1 + ROI_PAD_PX)
 
-    # safety clamp on size
     if (y1 - y0) > MAX_ROI_SIDE:
         mid = (y0 + y1) // 2
         y0 = max(0, mid - MAX_ROI_SIDE // 2)
@@ -496,7 +533,6 @@ def background_stats_full_minus_roi(
 
     bg_pixels = data[bg_mask].astype(np.float64)
     if bg_pixels.size == 0:
-        # pathological; fall back to whole-frame stats
         bg_pixels = data.astype(np.float64).ravel()
 
     return float(np.mean(bg_pixels)), float(np.median(bg_pixels))
@@ -522,7 +558,6 @@ def save_roi_overlay_frame(
     gy1 = min(h, y1 + guard_px)
     gx1 = min(w, x1 + guard_px)
 
-    # scale to display range for visibility
     disp = data.astype(np.float64)
     vmin = np.percentile(disp, 1)
     vmax = np.percentile(disp, 99.5)
@@ -532,7 +567,6 @@ def save_roi_overlay_frame(
     fig, ax = plt.subplots(figsize=(8, 6))
     ax.imshow(disp, cmap="gray", origin="upper", vmin=vmin, vmax=vmax)
 
-    # outer guard/exclusion box
     outer = Rectangle(
         (gx0, gy0),
         gx1 - gx0,
@@ -544,7 +578,6 @@ def save_roi_overlay_frame(
     )
     ax.add_patch(outer)
 
-    # inner signal ROI box
     inner = Rectangle(
         (x0, y0),
         x1 - x0,
@@ -567,19 +600,18 @@ def save_roi_overlay_frame(
 def main():
     import argparse
 
-    # Local defaults from module-level constants
     default_counts_per_rev = counts_per_wheel_rev_guess
+    default_encoder_modulus = encoder_count_modulus_guess
 
     parser = argparse.ArgumentParser(description="Create scatter plots from FITS + encoder pickle.")
     parser.add_argument("--debug", action="store_true", help="Enable debug prints")
     parser.add_argument("--time-offset-hours", type=float, default=None, help="Manual time offset (hours)")
     parser.add_argument("--counts-per-rev", type=int, default=default_counts_per_rev,
                         help="Counts per full plate revolution")
+    parser.add_argument("--encoder-modulus", type=int, default=default_encoder_modulus,
+                        help="Wrapped encoder modulus (e.g. 400 if raw counts run 0..399)")
     parser.add_argument("--fitlog-dir", default=None,
                         help="Directory for fit log file (default: <fits_exposure_dir>/plots)")
-    #parser.add_argument("--fitlog-copy-dir", default=None,
-                       # help="If set, also writes a copy of the fitlog to this directory")
-
     parser.add_argument("fits_exposure_dir", help="Exposure dir (exposures-...)")
     parser.add_argument("encoder_pkl", help="encoder_data_*.pkl path")
     parser.add_argument("--save-roi-overlays", action="store_true",
@@ -590,8 +622,8 @@ def main():
     DEBUG = bool(args.debug)
     manual_offset_sec = int(args.time_offset_hours * 3600) if args.time_offset_hours is not None else None
 
-    # Apply overrides (LOCAL variables; no globals)
     counts_per_rev = int(args.counts_per_rev)
+    encoder_modulus = int(args.encoder_modulus)
     fits_dir = args.fits_exposure_dir
     encoder_pkl = args.encoder_pkl
 
@@ -616,7 +648,6 @@ def main():
 
     fitlog_copy_path = os.path.join(fitlog_copy_dir, fitlog_name)
 
-    # Write to both destinations always
     fitlog_paths = [fitlog_path, fitlog_copy_path]
 
     def flog_write(line: str):
@@ -643,15 +674,14 @@ def main():
         print(f"[DEBUG] FITS files found: {len(fits_files)}")
         print(f"[DEBUG] Fit harmonics: {FIT_HARMONICS}")
         print(f"[DEBUG] counts_per_rev={counts_per_rev}")
+        print(f"[DEBUG] encoder_modulus={encoder_modulus}")
         print(f"[DEBUG] ROI tracking: thresh_frac={BLOB_THRESH_FRAC_OF_PEAK} pad={ROI_PAD_PX} guard={ROI_GUARD_PX}")
 
-    # Parse FITS timestamps up front
     fits_ts_raw = []
     for f in fits_files:
         s = fits.getheader(f).get("DATE-OBS")
         fits_ts_raw.append(parse_fits_dateobs_to_timestamp(s))
 
-    # Determine offset
     if manual_offset_sec is not None:
         offset_sec = manual_offset_sec
         if DEBUG:
@@ -666,7 +696,7 @@ def main():
     skip_bad_dateobs = 0
     skip_no_encoder_match = 0
     skip_bad_roi = 0
-    skip_no_blob = 0  # NEW
+    skip_no_blob = 0
 
     t0 = time.time()
     last_progress_print = t0
@@ -700,7 +730,6 @@ def main():
 
         data = fits.getdata(ffile, extname="GREEN1").astype(np.float64)
 
-        # per-frame ROI detection + tracking
         roi_info = detect_signal_roi_bbox(data, debug=DEBUG)
         if roi_info is None:
             skip_no_blob += 1
@@ -708,22 +737,21 @@ def main():
 
         y0, y1, x0, x1, y_peak, x_peak = roi_info
 
-        # sanity
         if y1 <= y0 or x1 <= x0:
             skip_bad_roi += 1
             continue
 
         roi = data[y0:y1, x0:x1]
 
-        # background tied to ROI (full frame minus ROI+guard)
-        bg_mean, bg_median = background_stats_full_minus_roi(data, y0, y1, x0, x1, guard_px=ROI_GUARD_PX)
+        bg_mean, bg_median = background_stats_full_minus_roi(
+            data, y0, y1, x0, x1, guard_px=ROI_GUARD_PX
+        )
 
         if args.save_roi_overlays:
             overlay_name = f"{i:05d}_roi_overlay.png"
             overlay_path = os.path.join(roi_overlay_dir, overlay_name)
             save_roi_overlay_frame(data, y0, y1, x0, x1, ROI_GUARD_PX, overlay_path)
 
-        # scalar ROI stats
         roi_sum = float(np.sum(roi))
         roi_mean = float(np.mean(roi))
         roi_median = float(np.median(roi))
@@ -731,7 +759,6 @@ def main():
 
         encoder_vals.append(int(encoder_val))
 
-        # background-subtracted values (scalar subtraction only)
         vals["one_pixel"].append(float(data[y_peak, x_peak]) - bg_mean)
         vals["ROI_sum"].append(roi_sum - bg_mean * n_roi_pix)
         vals["ROI_average"].append(roi_mean - bg_mean)
@@ -753,7 +780,6 @@ def main():
         print("[ERR ] No matched frames. Nothing to plot.")
         sys.exit(1)
 
-    # --- Filter outlier encoder values ---
     keep_mask = np.ones_like(encoders, dtype=bool)
     if FILTER_ENCODER_OUTLIERS:
         keep_mask = filter_encoder_outliers(encoders, debug=DEBUG)
@@ -763,15 +789,16 @@ def main():
         for k in plot_types:
             vals[k] = list(np.asarray(vals[k])[keep_mask])
 
-    # --- Recompute block to attempt to make angles "absolute" ---
-    enc = encoders.astype(np.int64)
+    # Unwrap wrapped encoder counts, then compute angles/rotations
+    raw_enc = encoders.astype(np.int64)
+    enc = unwrap_encoder_counts(raw_enc, encoder_modulus)
+
     frac = (enc.astype(np.float64) / float(counts_per_rev)) % 1.0
     angles = frac * 2.0 * np.pi
     rotations = (enc // counts_per_rev).astype(np.int64)
 
     print(f"[INFO] Final samples after filtering: {len(encoders)}")
 
-    # --- Plotting ---
     print("\n[INFO] Generating plots and fit log...")
     plot_t0 = time.time()
 
@@ -783,6 +810,7 @@ def main():
     flog_write(f"fits_dir: {fits_dir}\n")
     flog_write(f"encoder_pkl: {encoder_pkl}\n")
     flog_write(f"counts_per_rev: {counts_per_rev}\n")
+    flog_write(f"encoder_modulus: {encoder_modulus}\n")
     flog_write(f"bg_mode: full_frame_minus_signal_roi_plus_guard\n")
     flog_write(f"roi_mode: auto_blob_bbox\n")
     flog_write(f"roi_pad_px: {ROI_PAD_PX}\n")
@@ -798,7 +826,7 @@ def main():
         y = np.array(vals[k], dtype=np.float64)
 
         save_scatter_plot(
-            encoders, y, rotations,
+            enc, y, rotations,
             "Encoder Count", k.replace("_", " ").title(),
             f"{k.replace('_', ' ').title()} vs Encoder",
             outpath=os.path.join(plot_base_dir, k, f"{k}_vs_encoder.png"),
@@ -822,27 +850,27 @@ def main():
             R2 = params.get("R2", float("nan"))
             flog_write(f"{k}: psi_deg_mod90={psi_deg_mod90:.4f}, A4={A4:.6g}, A2={A2:.6g}, R2={R2:.6f}\n")
 
-    # raw data dump (unchanged format)
     flog_write("\n# raw_data\n")
     flog_write("# Columns:\n")
-    flog_write("# idx, encoder_count, rotation_index, plate_angle_rad, " + ", ".join(plot_types) + "\n")
+    flog_write("# idx, encoder_count_raw, encoder_count_unwrapped, rotation_index, plate_angle_rad, " + ", ".join(plot_types) + "\n")
     flog_write("# Notes:\n")
-    flog_write("# - encoder_count is the matched encoder sample after time-offset + filtering\n")
-    flog_write("# - rotation_index = encoder_count // counts_per_rev\n")
-    flog_write("# - plate_angle_rad = ((encoder_count / counts_per_rev) % 1) * 2*pi\n")
+    flog_write("# - encoder_count_raw is the matched wrapped encoder sample after time-offset + filtering\n")
+    flog_write("# - encoder_count_unwrapped is the reconstructed cumulative encoder count\n")
+    flog_write("# - rotation_index = encoder_count_unwrapped // counts_per_rev\n")
+    flog_write("# - plate_angle_rad = ((encoder_count_unwrapped / counts_per_rev) % 1) * 2*pi\n")
     flog_write("# - intensity columns correspond to the arrays used for plots\n")
     flog_write("#\n")
 
-    header = "idx,encoder_count,rotation_index,plate_angle_rad," + ",".join(plot_types) + "\n"
+    header = "idx,encoder_count_raw,encoder_count_unwrapped,rotation_index,plate_angle_rad," + ",".join(plot_types) + "\n"
     flog_write(header)
 
-    # Make sure we have numpy arrays for consistent indexing
     y_arrays = {k: np.asarray(vals[k]) for k in plot_types}
 
-    for i in range(len(encoders)):
+    for i in range(len(raw_enc)):
         row_vals = [
             str(i),
-            str(int(encoders[i])),
+            str(int(raw_enc[i])),
+            str(int(enc[i])),
             str(int(rotations[i])),
             f"{float(angles[i]):.10g}",
         ]
