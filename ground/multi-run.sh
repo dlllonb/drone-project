@@ -155,22 +155,32 @@ CAMPAIGN_LOG="$CAMPAIGN_DIR/campaign.log"
 if [[ "$MODE" == "process-only" ]]; then
   info "Processing existing campaign: $CAMPAIGN_DIR"
 
-  mapfile -d '' EXPOSURE_DIRS < <(
+  mapfile -t RUN_DIRS < <(
     find "$CAMPAIGN_DIR" \
-      \( -path "$CAMPAIGN_DIR/exposures-*" -o -path "$CAMPAIGN_DIR/run_*/exposures-*" \) \
-      -type d -print0 | sort -z
+      -mindepth 1 -maxdepth 1 \
+      -type d -name 'run_*' | sort
   )
 
-  if [[ "${#EXPOSURE_DIRS[@]}" -eq 0 ]]; then
-    err "No exposures-* directories found under $CAMPAIGN_DIR"
+  if [[ "${#RUN_DIRS[@]}" -eq 0 ]]; then
+    err "No run_* directories found under $CAMPAIGN_DIR"
     exit 1
   fi
 
-  total="${#EXPOSURE_DIRS[@]}"
+  total="${#RUN_DIRS[@]}"
   idx=0
-  for expdir in "${EXPOSURE_DIRS[@]}"; do
+
+  for run_dir in "${RUN_DIRS[@]}"; do
     idx=$((idx + 1))
+
+    expdir="$(find "$run_dir" -mindepth 1 -maxdepth 1 -type d -name 'exposures-*' | sort | head -n 1 || true)"
+
+    if [[ -z "$expdir" ]]; then
+      warn "No exposures-* directory found in $run_dir; skipping."
+      continue
+    fi
+
     info "===== Campaign processing ${idx}/${total} ====="
+    info "Run dir: $run_dir"
     info "Exposure dir: $expdir"
 
     "$RUN_SCRIPT" \
