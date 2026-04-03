@@ -36,8 +36,7 @@ ground/
 ├── load-config.py        # Loads config + CLI overrides into shell env vars
 ├── run-end-to-end.sh     # Single-run acquisition / processing pipeline
 ├── multi-run.sh          # Campaign wrapper for repeated runs
-├── Makefile              # Build helper for camera + encoder code
-└── instructions.md       # Operational notes / usage notes
+└── Makefile              # Build helper for camera + encoder code
 ```
 
 ---
@@ -301,6 +300,55 @@ make
 ```
 
 Depending on the build targets, this compiles the required camera and encoder binaries.
+
+---
+
+## Raspberry Pi Access and Hardware Bring-Up
+
+The ground system is typically operated on a Raspberry Pi connected to the camera, motor controller, and encoder hardware.
+
+### Connecting to the Raspberry Pi
+
+If operating the system remotely:
+
+1. Connect to the appropriate network (for example, on-campus Wi-Fi or VPN if required)
+2. SSH into the Raspberry Pi using its current hostname or IP address
+
+Example:
+
+```bash
+ssh <username>@<raspberry-pi-address>
+```
+
+> **Note:** IP addresses and hostnames may change over time, so they are not hardcoded here.
+
+### Basic hardware checklist before a run
+
+Before starting acquisition, verify the following:
+
+- the **camera** is connected and recognized
+- the **encoder USB interface** is plugged into the Raspberry Pi
+- the **encoder / interface board power switch** is turned on (if applicable)
+- the **motor driver and motor power** are connected
+- any required GPIO / USB hardware is seated properly
+
+### Motor daemon requirement
+
+The motor control stack depends on `pigpiod` being available on the Raspberry Pi.
+
+If the motor subsystem does not respond correctly, check that the daemon is running:
+
+```bash
+sudo systemctl status pigpiod
+```
+
+or start it manually if needed:
+
+```bash
+sudo pigpiod
+```
+
+In normal operation, the motor scripts may also start or check this automatically.
 
 ---
 
