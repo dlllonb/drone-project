@@ -59,7 +59,7 @@ def main():
         run_cmd([ground_path + "motor/scripts/motor_control.sh", "enable"], check=True)
 
         # Direction
-        run_cmd([ground_path + "motor/scripts/motor_control.sh", "backward"], check=True)
+        run_cmd([ground_path + "motor/scripts/motor_control.sh", "forward"], check=True)
 
         # Spin
         run_cmd([ground_path + "motor/scripts/motor_control.sh", "spin", spin_rate], check=True)
