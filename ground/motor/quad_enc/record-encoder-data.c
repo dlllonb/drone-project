@@ -175,22 +175,25 @@ void processQSBResponse(const char *response) {
     }
 }
 
-int getCountFromQsbResponse(int fd, char *response)
+int getCountFromQsbResponse(int fd, char *response, int32_t *count_out)
 {
     int bytesRead = -1;
 
     if (wait_for_data(fd) > 0) {
-        bytesRead = read(fd, response, MAX_RESPONSE_LENGTH);
+        bytesRead = read(fd, response, MAX_RESPONSE_LENGTH - 1);
         if (bytesRead > 0) {
+            response[bytesRead] = '\0';
             int end = strcspn(response, "!");
             response[end] = '\0';
+
+            const char *hexValue = response + 3;
+            uint32_t raw = (uint32_t)strtoul(hexValue, NULL, 16);
+            *count_out = (int32_t)raw;
+            return 1;   // got a real count
         }
-    } else {
-         return -1;
     }
 
-    const char *hexValue = response + 3;
-    return (int)strtol(hexValue, NULL, 16);
+    return 0;   // no new streamed value available
 }
 
 void process_command(int fd, char *command) {
@@ -279,13 +282,16 @@ int main (int argc, char *argv[])
 
     // Count up, 1X, Modulo-N.
     // Register: MDR0 (0x03)
-    process_command(serial_fd, "W030C");
+    // process_command(serial_fd, "W030C");
+
+    // x1 quadrature, free-running
+    process_command(serial_fd, "W0301");
 
     // Set maximum count (Preset) to decimal 499
     // Register: DTR (0x08)
     // switching from W081F3 to W0818F (499 -> 399)
     //switching back to see if it fixes our issue ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    process_command(serial_fd, "W0818F");
+    // process_command(serial_fd, "W0818F");
 
     // Prepare to stream the encoder position.
     // Set the threshold 1 (stream count if changes by 1)
@@ -314,48 +320,36 @@ int main (int argc, char *argv[])
     puts("\nUse Ctrl+C to exit.\n\n");
     double timestamp;
     char response[MAX_RESPONSE_LENGTH];
-    int encoderCount, lastEncoderCount;
-    double radians, lastGoodRadians;
 
     // Get the start time for the timestamped filename
     double startTime = getTimeInMilliseconds();
     char filename[128];
     snprintf(filename, sizeof(filename), "nerd_file_%.0f.pkl", startTime);  // Using timestamp for filename
 
+    int32_t encoderCount = 0;
+    int32_t lastEncoderCount = 0;
+    double radians = 0.0, lastGoodRadians = 0.0;
+
     while (CloseRequested == FALSE)
     {
-        // Do stuff.
-        // Read current count.
-
-        // Since we are stream encoder counts
-        // we don't need to keep requesting the
-        // encoder count.
-        // Register: READ ENCODER (0x0E)
-        // sendQSBCommand(serial_fd, "R0E");
-
-        // Read the streamed current count.
-        // getCoutFromQsbResponse returns -1 when there is
-        // no change in encoder count.
-        encoderCount = getCountFromQsbResponse(serial_fd, response);
         timestamp = getTimeInMilliseconds();
 
-        if (encoderCount >= 0) {
+        if (getCountFromQsbResponse(serial_fd, response, &encoderCount)) {
             lastEncoderCount = encoderCount;
-            //changed from 2pi to 12pi because big wheel is in 1:6 ratio with small wheel
-            //radians = encoderCount * (120*M_PI / 499.0); //change 500 depending on the count cycle
-            radians = encoderCount;
+            radians = (double)encoderCount;
             lastGoodRadians = radians;
-            printf("Count: %d, Radians: %.6f, %.2f\n", encoderCount, radians, timestamp);
-        }
-        else {
-            printf("NC Count: %d, Radians: %.6f, %.2f\n", lastEncoderCount, lastGoodRadians, timestamp);
-            //break;
+            printf("Count: %" PRId32 ", Radians: %.6f, %.2f\n",
+                encoderCount, radians, timestamp);
+        } else {
+            printf("NC Count: %" PRId32 ", Radians: %.6f, %.2f\n",
+                lastEncoderCount, lastGoodRadians, timestamp);
         }
 
-        // Add to Python dict
-        PyObject *pyRadians = PyFloat_FromDouble(radians);
+        PyObject *pyRadians = PyFloat_FromDouble(lastGoodRadians);
         PyObject *pyTimestamp = PyFloat_FromDouble(timestamp);
         PyDict_SetItem(pyDict, pyTimestamp, pyRadians);
+        Py_DECREF(pyRadians);
+        Py_DECREF(pyTimestamp);
     }
 
     // Get the current timestamp for filename
