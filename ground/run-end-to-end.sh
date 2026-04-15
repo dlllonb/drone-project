@@ -34,6 +34,7 @@ PROCESS_SCRIPT="$BASE_DIR/readout/process-exposures-batch.py"
 PLOT_SCRIPT="$BASE_DIR/readout/create-plot.py"
 LOAD_CONFIG="$BASE_DIR/load-config.py"
 ANIMATION_SCRIPT="$BASE_DIR/readout/create-animation.py"
+UNIFIED_MAKEFILE_DIR="$BASE_DIR"
 
 # Runtime state
 MODE="full"
@@ -73,6 +74,12 @@ Examples:
   ./run-end-to-end.sh --mode full --output-root ./campaign-20260319/run_001
   ./run-end-to-end.sh --mode process-only --exposure-dir ./campaign-20260319/run_001/exposures-20260319-...
 EOF
+}
+
+build_hardware_binaries() {
+  info "Ensuring camera and encoder binaries are up to date..."
+  make -C "$UNIFIED_MAKEFILE_DIR"
+  info "Build complete."
 }
 
 kill_pgrp() {
@@ -183,6 +190,10 @@ if [[ "$MODE" != "process-only" ]]; then
       exit 1
     fi
   done
+fi
+
+if [[ "$MODE" != "process-only" ]]; then
+  build_hardware_binaries
 fi
 
 info "Loading config: ${CONFIG_PATH}"
