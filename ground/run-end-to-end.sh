@@ -305,8 +305,8 @@ run_processing_stage() {
     info "Deleting raw bin directory: ${EXPOSURE_DIR}/raw"
     rm -rf "${EXPOSURE_DIR}/raw" || true
 
-    info "Deleting processed FITS directory..."
-    rm -rf "${EXPOSURE_DIR}/processed/fits" || true
+    info "Deleting processed images directory..."
+    rm -rf "${EXPOSURE_DIR}/processed" || true
 
     info "Cleanup complete."
   fi
