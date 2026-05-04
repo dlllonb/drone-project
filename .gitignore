@@ -20,6 +20,9 @@ processed/
 # Jupyter notebook checkpoints
 .ipynb_checkpoints/
 
+# Integration test outputs
+ground/test/test_runs/
+
 # Hiding my Gmail API key
 ground/ip_check/.env
 ground/ip_check/ip_check.log
