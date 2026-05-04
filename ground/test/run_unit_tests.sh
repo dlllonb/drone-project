@@ -1,9 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-python3 -m pytest test/unit/test_load_config.py
-python3 -m pytest test/unit/test_create_plot.py
-python3 -m pytest test/unit/test_create_animation.py
-python3 -m pytest test/unit/test_encoder_pkl_sanity.py
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-bash test/unit/test_process_exposures_batch.sh
+echo "[INFO] Running unit tests..."
+
+python3 -m pytest "$SCRIPT_DIR/unit/test_load_config.py"
+python3 -m pytest "$SCRIPT_DIR/unit/test_create_plot.py"
+python3 -m pytest "$SCRIPT_DIR/unit/test_create_animation.py"
+python3 -m pytest "$SCRIPT_DIR/unit/test_encoder_pkl_sanity.py"
+
+bash "$SCRIPT_DIR/unit/test_process_exposures_batch.sh"
+
+echo
+echo "============================================================"
+echo "[PASS] Unit tests passed."
+echo "============================================================"
