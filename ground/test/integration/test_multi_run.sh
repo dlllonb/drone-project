@@ -11,7 +11,7 @@ echo "[INFO] Campaign dir: $CAMPAIGN_DIR"
 
 "$MULTI_RUN_SCRIPT" \
   2 \
-  "${TEST_ACQ_DURATION_S:-6}" \
+  "${TEST_MULTI_RUN_DURATION_S:-15}" \
   --mode full \
   --campaign-dir "$CAMPAIGN_DIR" \
   --cleanup-after-processing 0

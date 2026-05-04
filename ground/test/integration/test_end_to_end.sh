@@ -12,7 +12,7 @@ echo "[TEST] End-to-end pipeline"
 "$RUN_SCRIPT" \
   --mode full \
   --output-root "$RUN_ROOT" \
-  --duration-s "${TEST_ACQ_DURATION_S:-8}" \
+  --duration-s "${TEST_END_TO_END_DURATION_S:-15}" \
   --cleanup-after-processing 0
 
 EXPOSURE_DIR="$(find "$RUN_ROOT" -mindepth 1 -maxdepth 1 -type d -name 'exposures-*' | sort | tail -n 1)"
