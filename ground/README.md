@@ -1,5 +1,3 @@
-
-
 # Ground System README
 
 ## Overview
@@ -36,7 +34,8 @@ ground/
 ├── load-config.py        # Loads config + CLI overrides into shell env vars
 ├── run-end-to-end.sh     # Single-run acquisition / processing pipeline
 ├── multi-run.sh          # Campaign wrapper for repeated runs
-└── Makefile              # Build helper for camera + encoder code
+├── Makefile              # Build helper for camera + encoder code
+└── test/                 # Unit/script-level tests and hardware integration tests
 ```
 
 ---
@@ -170,7 +169,7 @@ It is used when repeated observations are desired under the same setup.
 ./multi-run.sh --mode process-only --campaign-dir ./campaign-20260319-210000
 
 # Pass config / plotting overrides through
-./multi-run.sh 3 60 --mode full -- --config config.yml --save-roi-overlays 1 --make-roi-gif 1
+./multi-run.sh 3 60 --mode full --config config.yml --save-roi-overlays 1 --make-roi-gif 1
 ```
 
 ---
@@ -207,105 +206,107 @@ Typical configurable items include:
 ### Cleanup settings
 - whether to delete large intermediate files after processing
 
----
+### Command-line overrides
 
-## Data Products
+Most configuration values can also be overridden from the command line. For example:
 
-Each exposure run creates a directory of the form:
-
-```text
-exposures-YYYYMMDD-HHMMSS-mmm_PID/
+```bash
+./run-end-to-end.sh --mode full --duration-s 60 --cleanup-after-processing 0
 ```
 
-Inside that directory, typical outputs include:
+The `multi-run.sh` wrapper forwards additional arguments to `run-end-to-end.sh`, so configuration overrides can also be passed during campaign runs:
 
-```text
-exposures-.../
-├── raw/                        # Raw .bin frames
-├── processed/
-│   ├── fits/                   # FITS files (optional)
-│   ├── color/                  # Color PNG previews (optional)
-│   └── green/                  # Green-channel PNG previews (optional)
-├── plots/
-│   ├── one_pixel/
-│   ├── ROI_sum/
-│   ├── ROI_average/
-│   ├── ROI_median/
-│   └── roi_overlays/           # Optional ROI debug overlays
-├── encoder_data_*.pkl          # Encoder time series
-├── camera.log
-├── motor.log
-├── run_config.log
-└── run_command.log
+```bash
+./multi-run.sh 3 60 --mode full --cleanup-after-processing 0
 ```
 
-Optional GIF outputs may also be created, such as:
-
-- color animation GIF
-- green animation GIF
-- ROI tracking GIF
+Use `--help` on the relevant scripts for the latest list of supported options.
 
 ---
 
-## Design Philosophy
+## Software Requirements and Build Instructions
 
-Several design choices were made intentionally to improve reliability and reproducibility.
+The ground pipeline was developed for a Linux-based ground-system environment connected to the camera, motor, and encoder hardware.
 
-### 1. Separation of acquisition and processing
+### System requirements
 
-The system supports collecting data first and processing later. This is useful because:
+Required system components include:
 
-- acquisition should remain as lightweight and robust as possible
-- processing can take significantly longer than capture
-- long observing sessions may be easier to run in acquisition-only mode
-- failed processing can be rerun without recollecting data
+- Python 3
+- GNU Make
+- GCC/G++
+- ZWO ASI SDK v1.36
+- `pigpio` / `pigpiod` for motor control
 
-### 2. Campaign-based organization
+The ZWO ASI SDK version used for this project is version 1.36. On the development system, the SDK resources are located under:
 
-Multi-run observations are grouped into campaign folders so that all related runs stay together. This makes it easier to:
+```text
+/home/declan/drone-project/ground/
+```
 
-- compare runs from the same observing session
-- rerun processing on all runs together
-- archive or move an entire campaign as one unit
+### Python requirements
 
-### 3. Raw-first storage
+The Python scripts use packages including:
 
-The camera writes raw `.bin` files during acquisition because this is faster and simpler than generating FITS files live. FITS conversion is deferred to the processing stage.
+- `numpy`
+- `matplotlib`
+- `astropy`
+- `imageio`
+- `Pillow`
+- `pytest`
+- `PyYAML`
 
-### 4. Reproducibility
+If a `requirements.txt` file is available, install dependencies with:
 
-Each run stores:
+```bash
+pip install -r requirements.txt
+```
 
-- resolved config values
-- command invocation
-- logs
+Otherwise, install the main dependencies manually:
 
-This allows runs to be traced and reproduced later.
+```bash
+pip install numpy matplotlib astropy imageio pillow pytest pyyaml
+```
 
----
-
-## Build / Compilation
+### Building compiled components
 
 The ground system includes compiled components for:
 
 - camera capture
 - quadrature encoder logging
 
-These are built using the top-level `Makefile` in `ground/`.
-
-### Typical usage
+These are built using the top-level `Makefile` in `ground/`:
 
 ```bash
 make
 ```
 
-Depending on the build targets, this compiles the required camera and encoder binaries.
+This calls the subsystem Makefiles for the camera and encoder code. The higher-level acquisition scripts also call the build step before hardware acquisition so the camera and encoder binaries are up to date.
+
+To clean build outputs:
+
+```bash
+make clean
+```
 
 ---
 
 ## Raspberry Pi Access and Hardware Bring-Up
 
 The ground system is typically operated on a Raspberry Pi connected to the camera, motor controller, and encoder hardware.
+
+Hardware setup should follow the project hardware documentation described in Baker (2024), https://doi.org/10.18130/04rq-2w36, and Bass et al. (in preparation). This repository documents the software pipeline and assumes the camera, motor, encoder, and polarimeter hardware have already been assembled and connected according to that hardware design.
+
+### Hardware requirements
+
+Required hardware includes:
+
+- ZWO ASI178 camera
+- rotating half-wave plate / wheel assembly
+- motor and motor driver
+- quadrature encoder and encoder interface
+- Raspberry Pi or Linux host connected to the camera, motor, and encoder
+- appropriate USB, GPIO, and power connections
 
 ### Connecting to the Raspberry Pi
 
@@ -352,6 +353,82 @@ In normal operation, the motor scripts may also start or check this automaticall
 
 ---
 
+## Testing
+
+The project includes both software-only tests and hardware integration tests. The tests are stored in:
+
+```text
+test/
+```
+
+The test runners are:
+
+```text
+test/run_unit_tests.sh
+test/run_integration_tests.sh
+test/run_all_tests.sh
+```
+
+### Unit / script-level tests
+
+Unit and script-level tests use sample or synthetic data and do not require active hardware acquisition:
+
+```bash
+bash test/run_unit_tests.sh
+```
+
+These tests validate:
+
+- `load-config.py` config parsing and shell export output
+- `.bin` to FITS/PNG conversion using sample camera data
+- processed image dimensions
+- `process-exposures-batch.py` batch processing behavior
+- `create-plot.py` using synthetic sinusoidal FITS and encoder data
+- `create-animation.py` GIF generation from sample frames
+- encoder `.pkl` sanity using sample encoder data
+
+### Hardware integration tests
+
+Integration tests require the camera, motor, encoder, and associated hardware to be connected and ready:
+
+```bash
+bash test/run_integration_tests.sh
+```
+
+These tests validate:
+
+- single camera exposure capture
+- camera `.bin` file size sanity
+- motor plus encoder data collection
+- encoder timestamp monotonicity and approximate count linearity
+- camera-to-image processing
+- full end-to-end acquisition and analysis
+- two-run campaign execution through `multi-run.sh`
+
+### Full test suite
+
+To run both unit and integration tests:
+
+```bash
+bash test/run_all_tests.sh
+```
+
+Integration tests create temporary output under:
+
+```text
+test/test_runs/
+```
+
+By default, old integration-test outputs are deleted before a new integration test run. To preserve outputs for debugging:
+
+```bash
+KEEP_TEST_OUTPUTS=1 bash test/run_integration_tests.sh
+```
+
+The integration tests intentionally produce more console output than the unit tests because they run real hardware acquisition and processing workflows.
+
+---
+
 ## Subsystem Documentation
 
 Detailed documentation for each subsystem should be found in:
@@ -379,7 +456,7 @@ Use this for a one-off test or a single observation.
 ## 2. Multi-run observing campaign
 
 ```bash
-./multi-run.sh 5 60 --mode full -- --config config.yml
+./multi-run.sh 5 60 --mode full --config config.yml
 ```
 
 Use this for repeated runs under the same setup.
@@ -390,10 +467,10 @@ Use this for repeated runs under the same setup.
 
 ```bash
 # Step 1: acquire
-./multi-run.sh 5 60 --mode acquire-only -- --config config.yml
+./multi-run.sh 5 60 --mode acquire-only --config config.yml
 
 # Step 2: process later
-./multi-run.sh --mode process-only --campaign-dir ./campaign-20260319-210000 -- --config config.yml
+./multi-run.sh --mode process-only --campaign-dir ./campaign-20260319-210000 --config config.yml
 ```
 
 This is especially useful for field use or long observing sessions.
@@ -405,6 +482,8 @@ This is especially useful for field use or long observing sessions.
 - Encoder behavior depends on the hardware register configuration and may operate in either continuously increasing or modulo-wrapping mode depending on settings.
 - Large GIF outputs can quickly consume disk space and may exceed GitHub’s file size limits.
 - Processing with ROI overlays and GIF generation can significantly increase runtime and output size.
+- Short hardware integration runs may produce too few frames for a meaningful Fourier fit, even if the acquisition and processing pipeline succeeds.
+- Integration test outputs can be large; they are written under `test/test_runs/` and should not be committed.
 
 ---
 
@@ -416,6 +495,7 @@ It is recommended **not** to commit large generated data products such as:
 - FITS files
 - GIF animations
 - campaign output folders
+- `test/test_runs/` integration-test output
 
 Instead, only commit:
 
