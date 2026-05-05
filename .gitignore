@@ -1,5 +1,7 @@
-# Cache
+# Python
 __pycache__/
+.pytest_cache/
+*.pyc
 
 # Compile files
 *.o
@@ -9,6 +11,7 @@ __pycache__/
 *.fits
 *.bin
 *.pkl
+*.gif
 
 # Log files
 *.log
@@ -31,3 +34,9 @@ ground/ip_check/ip_address.txt
 # Local vendor deps (keep locally, don't commit)
 ground/motor/pigpio/
 ground/motor/pigpio-master/
+
+# Generated acquisition data
+exposures-*/
+campaign-*/
+saved-data/
+test/test_runs/
