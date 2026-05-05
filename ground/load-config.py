@@ -1,4 +1,115 @@
 #!/usr/bin/env python3
+"""
+load-config.py
+==============
+
+Purpose
+-------
+This script loads configuration values from `config.yml`, applies optional
+command-line overrides, and emits the resolved values as shell-compatible
+environment variable exports.
+
+The script acts as the configuration bridge between:
+
+- YAML configuration files
+- shell pipeline scripts
+- command-line overrides
+- downstream acquisition / processing scripts
+
+It is primarily used by:
+
+- `run-end-to-end.sh`
+- `multi-run.sh`
+
+The output from this script is intended to be evaluated directly by a shell.
+
+Typical usage:
+
+    eval "$(python3 load-config.py --config config.yml)"
+
+Configuration Categories
+------------------------
+The configuration system is divided into several logical groups.
+
+Acquisition settings:
+
+- exposure time
+- gain
+- frame interval
+- acquisition duration
+
+Motor settings:
+
+- spin rate
+- base path
+
+Processing settings:
+
+- multiprocessing worker count
+- FITS generation
+- color preview generation
+- green-channel preview generation
+- cleanup behavior
+
+Plotting settings:
+
+- encoder counts per revolution
+- debug output
+- time offsets
+- ROI overlay generation
+- ROI animation generation
+
+Command-Line Overrides
+----------------------
+Any configuration value may be overridden from the command line.
+
+Example:
+
+    python3 load-config.py \
+        --config config.yml \
+        --duration-s 60 \
+        --make-fits 1
+
+Overrides take precedence over values loaded from YAML.
+
+Resolved Configuration Output
+-----------------------------
+If `--print-resolved` is specified, the script additionally prints a
+human-readable YAML representation of the fully resolved configuration.
+
+Example:
+
+    python3 load-config.py --config config.yml --print-resolved
+
+This is useful for:
+
+- debugging configuration behavior
+- verifying CLI overrides
+- logging reproducible run settings
+
+Typical Pipeline Usage
+----------------------
+In the full acquisition pipeline, shell scripts usually evaluate the emitted
+exports directly:
+
+    eval "$(python3 load-config.py --config config.yml)"
+
+This populates environment variables such as:
+
+    EXPOSURE_TIME
+    GAIN
+    PROCESS_JOBS
+    PLOT_COUNTS_PER_REV
+
+which are later consumed by the acquisition and processing scripts.
+
+Notes
+-----
+- Missing YAML fields fall back to built-in defaults.
+- Boolean values are emitted as shell-safe `1` or `0`.
+- The script is intentionally stateless and does not modify configuration files.
+- The emitted exports are intended for Bash-compatible shells.
+"""
 import argparse
 import os
 from typing import Any, Dict

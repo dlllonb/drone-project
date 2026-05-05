@@ -1,24 +1,104 @@
+# ==========================================================
+# Polarimeter Ground Pipeline Configuration
+#
+# This file defines the default settings used by:
+#
+#   - run-end-to-end.sh
+#   - multi-run.sh
+#   - load-config.py
+#
+# Values in this file may be overridden from the command line.
+#
+# Example:
+#
+#   ./run-end-to-end.sh --duration-s 60
+#
+# or:
+#
+#   ./multi-run.sh 3 60 --mode full -- --make-fits 1
+#
+# ==========================================================
+
 acquisition:
+  # Camera exposure time in seconds
   exposure_time_s: 0.001
+
+  # Camera gain value
   gain: 100
+
+  # Delay between consecutive exposures in seconds
   interval_s: 0.001
-  duration_s: 360   # Set to 0 for manual stop, positive int for duration in seconds
+
+  # Total acquisition duration in seconds
+  #
+  # Set to 0 for manual stop mode.
+  # Positive values enable automatic stopping.
+  duration_s: 360
 
 motor:
+  # Base path to the ground pipeline directory.
+  #
+  # Used by motor / encoder helper scripts.
   base_path: "/home/declan/drone-project/ground/"
+
+  # Requested motor spin rate.
+  #
+  # Exact physical interpretation depends on the
+  # connected motor controller configuration.
   spin_rate: 250
 
 processing:
-  jobs: 0            # 0 => auto (cpu_count-1)
+  # Number of worker processes used during batch processing.
+  #
+  # 0 => automatically use (cpu_count - 1)
+  jobs: 0
+
+  # Generate FITS files from raw .bin exposures
   make_fits: true
+
+  # Generate RGB preview PNG images
   make_color: false
+
+  # Generate green-channel PNG images
   make_green: false
+
+  # Reduce console output during processing
   quiet: false
-  cleanup_after_processing: true   # 'false' is a safer default for deferred processing workflows
+
+  # Delete large intermediate products after processing.
+  #
+  # WARNING:
+  # Enabling cleanup can permanently remove raw data products.
+  #
+  # For deferred processing workflows or debugging,
+  # keeping this disabled is generally safer.
+  cleanup_after_processing: true
 
 plotting:
+  # Encoder counts corresponding to one full revolution.
+  #
+  # Used to convert encoder counts into plate angle.
   counts_per_rev: 2400
+
+  # Enable additional debug plots and console output
   debug: false
-  time_offset_hours: null  # number or null
+
+  # Optional manual time offset (hours) applied when
+  # matching encoder timestamps to exposure timestamps.
+  #
+  # Use null to disable.
+  time_offset_hours: null
+
+  # Save ROI overlay frames for debugging.
+  #
+  # These overlays show:
+  #   - detected signal region
+  #   - guard band
+  #   - excluded background region
   save_roi_overlays: false
+
+  # Automatically create a GIF animation from
+  # ROI overlay frames after plotting completes.
+  #
+  # Requires save_roi_overlays = true.
   make_roi_gif: false

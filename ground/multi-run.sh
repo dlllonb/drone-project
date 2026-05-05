@@ -19,7 +19,6 @@ set -euo pipefail
 # Campaign layout:
 #   campaign-YYYYMMDD-HHMMSS/
 #     campaign.log
-#     campaign_config.log
 #     run_001/
 #       exposures-...
 #     run_002/
