@@ -1,3 +1,54 @@
+"""
+read-bin.py
+===========
+
+Purpose
+-------
+Utility script for inspecting a single raw `.bin` file produced by the ZWO ASI
+camera capture programs.
+
+The script reads one raw binary camera frame, interprets it using the expected
+ASI178 frame dimensions, extracts Bayer channels, writes a FITS file, and saves
+PNG preview images.
+
+This script is mainly intended for camera-subsystem debugging and manual data
+inspection. The normal batch processing path for observing runs is handled by
+`readout/process-exposures-batch.py`.
+
+Inputs
+------
+Command-line argument:
+
+    python3 read-bin.py <input.bin>
+
+The input `.bin` filename is expected to follow the timestamped exposure naming
+pattern:
+
+    exposure-YYYYMMDD-HHMMSS-mmm.bin
+
+Outputs
+-------
+For an input file named:
+
+    exposure-YYYYMMDD-HHMMSS-mmm.bin
+
+this script writes:
+
+    exposure-YYYYMMDD-HHMMSS-mmm.fits
+    exposure-YYYYMMDD-HHMMSS-mmm_color.png
+    exposure-YYYYMMDD-HHMMSS-mmm_gray.png
+
+The FITS primary HDU stores the full raw frame, and additional image extensions
+store extracted Bayer channels.
+
+Assumptions
+-----------
+The raw file is interpreted as unsigned 16-bit image data with dimensions:
+
+    width  = 3096
+    height = 2080
+"""
+
 import numpy as np
 import matplotlib.pyplot as plt
 from astropy.io import fits

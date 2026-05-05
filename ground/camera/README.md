@@ -270,6 +270,46 @@ Check:
 
 ---
 
+## Testing
+
+The camera subsystem is covered by the top-level test suite in `../test/`.
+
+Relevant tests include:
+
+### Unit tests
+- `.bin → image (single)` conversion
+- `.bin → image (batch)` conversion
+- `process-exposures-batch.py` validation
+
+These tests ensure that raw camera output can be correctly interpreted and converted into FITS and PNG products.
+
+### Integration tests
+- `Camera single exposure`
+- `Camera output file sanity`
+- `Camera-to-image pipeline`
+- `End-to-end pipeline`
+
+These tests verify that:
+
+- the camera can successfully capture frames
+- `.bin` files are non-empty and well-formed
+- captured data flows correctly through the processing pipeline
+
+### Running tests
+
+From `ground/`:
+
+```bash
+bash test/run_unit_tests.sh
+bash test/run_integration_tests.sh
+```
+
+These tests are the recommended way to validate camera functionality after:
+
+- hardware changes
+- SDK updates
+- modifications to capture or readout code
+
 ## Recommended Next Reading
 
 For the next stage of the pipeline, see:
