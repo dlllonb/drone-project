@@ -1,0 +1,7 @@
+numpy
+matplotlib
+astropy
+imageio
+pillow
+pytest
+pyyaml
