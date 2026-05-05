@@ -1,4 +1,75 @@
 #!/usr/bin/env python3
+"""
+process-exposures-batch.py
+==========================
+
+Purpose
+-------
+Batch-converts raw camera `.bin` files from an exposure directory into FITS
+files and optional PNG preview images.
+
+This script is the main raw-image processing step in the polarimeter ground
+pipeline. During normal operation it is called by `run-end-to-end.sh` after
+camera acquisition finishes. It can also be run manually to reprocess existing
+raw data.
+
+Input Directory
+---------------
+The script expects an exposure directory with raw binary frames stored under:
+
+    exposures-.../
+        raw/
+            exposure-YYYYMMDD-HHMMSS-mmm.bin
+
+Command-line usage:
+
+    python3 process-exposures-batch.py <exposure_dir>
+
+Options
+-------
+    --no-color
+        Skip color PNG preview generation.
+
+    --no-green
+        Skip green-channel PNG preview generation.
+
+    --no-fits
+        Skip FITS generation.
+
+    --jobs <N>
+        Number of multiprocessing workers. If 0 or negative, defaults to
+        cpu_count() - 1.
+
+    --quiet
+        Reduce per-file output.
+
+Outputs
+-------
+Outputs are written under:
+
+    exposures-.../
+        processed/
+            fits/
+            color/
+            green/
+
+FITS files contain the full raw frame in the primary HDU and Bayer-channel
+extensions named RED, GREEN1, GREEN2, BLUE, and COLOR_COMPOSITE.
+
+PNG previews are scaled to 8-bit for quick inspection. Because these previews
+are extracted from Bayer channels, their dimensions are half the raw sensor
+resolution.
+
+Assumptions
+-----------
+Raw `.bin` files are interpreted as unsigned 16-bit images with fixed camera
+geometry:
+
+    width  = 3096
+    height = 2080
+
+If camera output settings change, these constants must be updated.
+"""
 import os
 import sys
 import argparse
