@@ -1,3 +1,47 @@
+# motor_control.sh
+# =================
+#
+# Purpose
+# -------
+# Low-level motor control helper script for the polarimeter ground system.
+# This script wraps `pigs` (pigpio command-line tool) calls to control GPIO
+# pins that drive the motor controller.
+#
+# It provides simple commands to:
+#   - enable / disable the motor driver
+#   - set rotation direction
+#   - spin the motor at a given speed
+#   - stop the motor
+#
+# This script is primarily used by:
+#   - motor-spin-logger.py (during acquisition)
+#
+# It can also be run manually for hardware testing.
+#
+# Usage
+# -----
+#   ./motor_control.sh enable
+#   ./motor_control.sh forward
+#   ./motor_control.sh spin 1000
+#   ./motor_control.sh stop
+#   ./motor_control.sh disable
+#
+# Hardware Notes
+# --------------
+# - Requires `pigpiod` to be running (this script will attempt to start it)
+# - GPIO pin assignments are hardware-specific
+# - Incorrect usage may cause unexpected motor motion
+#
+# Safety
+# ------
+# Use caution when running this script on a live system:
+#   - Ensure the motor is free to spin
+#   - Avoid running at high speeds without supervision
+#
+# Typical Usage
+# -------------
+# This script is normally not called directly. It is invoked by
+# `motor-spin-logger.py` as part of the full acquisition pipeline.
 #!/bin/bash
 
 # Function to run shell commands

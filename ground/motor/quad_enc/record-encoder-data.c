@@ -1,3 +1,61 @@
+/*
+ * record-encoder-data.c
+ * =====================
+ *
+ * Purpose
+ * -------
+ * Low-level quadrature encoder logging program for the polarimeter ground
+ * system. This program communicates with the encoder interface over a serial
+ * connection, streams encoder counts, timestamps them, and saves the resulting
+ * time series to a Python pickle file.
+ *
+ * This program is normally not run directly by users. During acquisition it is
+ * launched by `motor/motor-spin-logger.py`, which also controls the motor and
+ * handles clean shutdown. The higher-level `run-end-to-end.sh` script then moves
+ * the generated encoder pickle into the matching exposure directory.
+ *
+ * Inputs
+ * ------
+ * Hardware / runtime inputs:
+ *
+ *   - Quadrature encoder interface connected over serial
+ *   - Default serial port: /dev/ttyUSB0
+ *   - QSB register configuration commands issued at startup
+ *
+ * Outputs
+ * -------
+ * On clean shutdown, writes a pickle file in the current working directory:
+ *
+ *   encoder_data_YYYYMMDD_HHMMSS.pkl
+ *
+ * The pickle contains a Python dictionary mapping:
+ *
+ *   timestamp_ms -> encoder_count
+ *
+ * where timestamps are POSIX epoch times in milliseconds and encoder counts are
+ * stored as numeric values. Downstream analysis uses this file to match each
+ * camera exposure to the closest encoder position.
+ *
+ * Encoder Configuration Notes
+ * ---------------------------
+ * The program configures the encoder for quadrature mode and uses a
+ * free-running count mode so that counts continue increasing rather than
+ * wrapping at a fixed modulo value. This behavior is important for downstream
+ * processing because `create-plot.py` converts continuous counts into folded
+ * plate angle using `counts_per_rev`.
+ *
+ * Shutdown Behavior
+ * -----------------
+ * The program traps Ctrl+C / SIGINT through a global close flag. The pickle file
+ * is written only after the loop exits, so the process should be stopped
+ * cleanly whenever possible.
+ *
+ * Build
+ * -----
+ * Built by the encoder Makefile under `motor/quad_enc/`. From `ground/`, run:
+ *
+ *   make
+ */
 #include <Python.h>
 #include <fcntl.h>
 #include <termios.h>
