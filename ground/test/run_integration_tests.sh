@@ -14,6 +14,7 @@ fi
 mkdir -p "$TEST_RUNS_DIR"
 
 bash "$SCRIPT_DIR/integration/test_camera_single_exposure.sh"
+bash "$SCRIPT_DIR/integration/test_motor_control_script.sh"
 bash "$SCRIPT_DIR/integration/test_encoder_motor.sh"
 bash "$SCRIPT_DIR/integration/test_camera_to_image_pipeline.sh"
 bash "$SCRIPT_DIR/integration/test_end_to_end.sh"
