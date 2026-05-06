@@ -29,6 +29,7 @@ test/
 │   └── test_process_exposures_batch.sh
 ├── integration/
 │   ├── test_camera_single_exposure.sh
+│   ├── test_motor_control_script.sh
 │   ├── test_encoder_motor.sh
 │   ├── test_camera_to_image_pipeline.sh
 │   ├── test_end_to_end.sh
@@ -139,6 +140,7 @@ Before running integration tests, verify that:
 - the encoder/interface board is powered, if applicable
 - the motor driver and motor power are connected
 - `pigpiod` is available for motor control
+- the motor control scripts have executable permissions
 - the camera and encoder binaries have been built or can be built with `make`
 
 ---
@@ -162,6 +164,21 @@ Expected raw file size:
 ```text
 3096 * 2080 * 2 bytes
 ```
+
+#### `test_motor_control_script.sh`
+
+Runs a short standalone sanity test of the low-level motor control scripts.
+
+This test checks that:
+
+- the motor control scripts can execute successfully
+- `pigpiod` is available and responsive
+- the motor enable/disable sequence works
+- the motor can start and stop without errors
+
+This test is intentionally lightweight and is primarily intended to catch low-level motor-control failures before the more complex encoder synchronization tests begin.
+
+Because the motor control scripts interface directly with Raspberry Pi GPIO hardware, this test is classified as an integration test rather than a pure unit test.
 
 #### `test_encoder_motor.sh`
 
