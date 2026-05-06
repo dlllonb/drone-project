@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """
 motor-spin-logger.py
 ====================
@@ -72,7 +74,6 @@ This script assumes that:
 - hardware (motor + encoder) is connected and powered
 """
 
-#!/usr/bin/env python3
 import argparse
 import subprocess
 import signal

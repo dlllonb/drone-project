@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # continuous-capture.sh
 # =====================
 #
@@ -50,7 +52,6 @@
 # On SIGINT, the script exits cleanly. The compiled camera binary handles camera
 # cleanup and file finalization.
 
-#!/bin/bash
 set -euo pipefail
 
 # Root where exposures-* should be created (default: current dir)

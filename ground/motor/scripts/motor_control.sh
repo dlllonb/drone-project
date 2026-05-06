@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # motor_control.sh
 # =================
 #
@@ -42,7 +44,6 @@
 # -------------
 # This script is normally not called directly. It is invoked by
 # `motor-spin-logger.py` as part of the full acquisition pipeline.
-#!/bin/bash
 
 # Function to run shell commands
 run_command() {

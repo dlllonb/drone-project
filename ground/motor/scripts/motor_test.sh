@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # motor_test.sh
 # ==============
 #
@@ -38,8 +40,6 @@
 #   - nothing obstructs motion
 #   - no loose cables or components
 #   - system is supervised during execution
-
-#!/bin/bash
 
 # Function to run the motor control script with the desired action and optional speed
 run_motor_control() {
