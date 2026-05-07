@@ -1,3 +1,54 @@
+/*
+ * capture-continuous.cpp
+ * ======================
+ *
+ * Purpose
+ * -------
+ * Continuously captures exposures from the connected ZWO ASI camera and writes
+ * each raw frame to a timestamped `.bin` file until interrupted.
+ *
+ * This is the main low-level camera acquisition program used by the polarimeter
+ * ground pipeline. During normal operation it is launched by
+ * `readout/continuous-capture.sh`, which sets up the exposure directory and
+ * passes camera settings from the higher-level configuration system.
+ *
+ * Inputs
+ * ------
+ * Optional command-line arguments:
+ *
+ *   --output-dir <path>
+ *       Directory where raw `.bin` frames will be written. Default: current directory.
+ *
+ *   --exposure-time <seconds>
+ *       Exposure duration in seconds. Default: 1.0
+ *
+ *   --gain <value>
+ *       Camera gain setting. Default: 100
+ *
+ *   --interval <seconds>
+ *       Delay between completed captures. Default: 1.5
+ *
+ * Outputs
+ * -------
+ * Writes raw binary image files named:
+ *
+ *   exposure-YYYYMMDD-HHMMSS-mmm.bin
+ *
+ * The timestamp in each filename is generated in UTC. Downstream scripts later
+ * use these filenames and FITS DATE-OBS metadata to synchronize camera frames
+ * with encoder measurements.
+ *
+ * Shutdown
+ * --------
+ * The capture loop handles SIGINT and SIGTERM so that higher-level shell scripts
+ * can stop acquisition cleanly, close the camera, and continue processing.
+ *
+ * Build
+ * -----
+ * Built by the camera subsystem Makefile. From `ground/`, run:
+ *
+ *   make
+ */
 #include <iostream>
 #include <fstream>
 #include <vector>

@@ -1,4 +1,79 @@
 #!/usr/bin/env python3
+
+"""
+motor-spin-logger.py
+====================
+
+Purpose
+-------
+High-level control script for the motor + encoder subsystem. This script
+starts the motor, sets its spin behavior, and launches the encoder readout
+program to record position vs time.
+
+It is designed to run during data acquisition and is typically invoked by
+higher-level pipeline scripts such as `run-end-to-end.sh`.
+
+Behavior
+--------
+The script performs the following steps:
+
+1. Enables the motor driver
+2. Sets rotation direction
+3. Starts motor spin at the requested rate
+4. Launches the encoder logging binary
+5. Waits until interrupted (SIGINT/SIGTERM)
+6. Stops encoder logging and motor cleanly
+
+Inputs
+------
+Command-line arguments:
+
+    --ground-path <path>
+        Base path to the ground repository. Used to locate motor control
+        scripts and encoder binary.
+
+    --spin-rate <int>
+        Motor spin rate passed to the motor control script.
+
+    --encoder-bin <path>
+        Optional override for the encoder logging binary. Defaults to:
+        <ground-path>/motor/quad_enc/record-encoder-data.out
+
+Outputs
+-------
+This script does not directly write data files. Instead:
+
+- The encoder binary writes a `.pkl` file containing timestamped count data
+- Motor activity is reflected in that encoder output
+
+Shutdown Behavior
+-----------------
+The script traps SIGINT and SIGTERM to ensure:
+
+- the encoder process is stopped cleanly
+- the motor is stopped via motor_control.sh
+
+This guarantees that encoder data is flushed and saved properly before exit.
+
+Typical Usage
+-------------
+Normally launched indirectly via:
+
+    ./run-end-to-end.sh
+
+Manual testing:
+
+    python3 motor-spin-logger.py --spin-rate 250
+
+Notes
+-----
+This script assumes that:
+
+- motor control scripts exist in `motor/scripts/`
+- the encoder binary has been compiled
+- hardware (motor + encoder) is connected and powered
+"""
+
 import argparse
 import subprocess
 import signal

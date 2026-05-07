@@ -1,4 +1,57 @@
 #!/bin/bash
+
+# continuous-capture.sh
+# =====================
+#
+# Purpose
+# -------
+# Wrapper script for continuous camera acquisition. This script creates the
+# standard exposure directory structure, then launches the compiled ZWO camera
+# capture binary to write raw `.bin` frames into the run's `raw/` folder.
+#
+# This script is normally called by `run-end-to-end.sh`, but it can also be run
+# manually for camera-only acquisition tests.
+#
+# Inputs
+# ------
+# Configuration is supplied through environment variables:
+#
+#   EXPOSURES_ROOT
+#       Parent directory where `exposures-*` folders should be created.
+#       Defaults to the current working directory.
+#
+#   RUN_ID
+#       Optional deterministic run identifier supplied by `run-end-to-end.sh`.
+#       If unset, this script creates a timestamp-based run id.
+#
+#   CAPTURE_BIN
+#       Optional path to the compiled camera capture executable.
+#       Defaults to `/home/declan/drone-project/ground/camera/capture-continuous.out`.
+#
+#   EXPOSURE_TIME
+#       Exposure duration in seconds. Default: 0.001
+#
+#   GAIN
+#       Camera gain setting. Default: 100
+#
+#   INTERVAL
+#       Delay between completed captures. Default: 0.001
+#
+# Outputs
+# -------
+# Creates an exposure directory:
+#
+#   exposures-<RUN_ID or timestamp>/
+#       raw/
+#       processed/
+#
+# Raw `.bin` files are written into the `raw/` directory by the camera binary.
+#
+# Shutdown
+# --------
+# On SIGINT, the script exits cleanly. The compiled camera binary handles camera
+# cleanup and file finalization.
+
 set -euo pipefail
 
 # Root where exposures-* should be created (default: current dir)

@@ -23,6 +23,39 @@ In normal operation, this subsystem is executed automatically by:
 
 ---
 
+## Software Requirements
+
+The readout pipeline depends primarily on Python scientific computing libraries.
+
+Recommended environment:
+
+- Python 3.10+
+- NumPy
+- SciPy
+- Astropy
+- Matplotlib
+- Pillow
+- PyYAML
+
+These dependencies can be installed using the top-level:
+
+```bash
+requirements.txt
+```
+
+from the `ground/` directory.
+
+The readout subsystem assumes compatibility with the camera outputs produced by:
+
+- ZWO ASI SDK version 1.36
+
+The processing scripts also assume the current camera sensor dimensions:
+
+- Width: `3096`
+- Height: `2080`
+
+---
+
 ## Directory Contents
 
 ### Main scripts
@@ -88,6 +121,17 @@ This script converts raw `.bin` files into more usable formats.
 - Extracts color channels
 - Writes FITS files with metadata
 - Uses multiprocessing for speed
+
+#### Notes on Ordering and Reproducibility
+
+The batch processing stage sorts input exposure filenames before processing.
+This ensures:
+
+- deterministic processing order
+- reproducible output naming
+- stable ordering across repeated processing runs
+
+The automated test suite includes checks that repeated batch processing runs produce valid outputs without requiring manual cleanup between runs.
 
 ---
 
@@ -298,6 +342,12 @@ The pipeline optionally fits harmonic models (e.g., 2θ, 4θ terms) to the folde
 
 This is used to extract polarization-related parameters from the signal.
 
+The fitting stage is intentionally separated from acquisition so that:
+
+- fits can be rerun later with different parameters
+- debugging can be performed without recollecting data
+- synthetic datasets can be used for validation testing
+
 ---
 
 ## Common Failure Modes
@@ -356,6 +406,64 @@ Check:
 - disk I/O performance
 
 ---
+
+---
+
+## Testing
+
+The readout subsystem is covered by both unit and integration tests.
+
+### Unit Tests
+
+The unit tests validate:
+
+- `.bin` → FITS conversion
+- `.bin` → PNG conversion
+- batch processing behavior
+- synthetic plotting and Fourier fitting
+- GIF animation generation
+- processed image dimensions
+
+These tests use small example datasets and synthetic inputs to validate pipeline behavior without requiring hardware.
+
+### Integration Tests
+
+Integration tests validate the full acquisition and processing chain using live hardware.
+
+These tests verify:
+
+- camera capture
+- encoder logging
+- FITS generation
+- plot generation
+- multi-run campaign execution
+- end-to-end pipeline behavior
+
+Run the integration suite from `ground/`:
+
+```bash
+bash test/run_integration_tests.sh
+```
+
+Run the unit tests:
+
+```bash
+bash test/run_unit_tests.sh
+```
+
+Run the full automated test suite:
+
+```bash
+bash test/run_all_tests.sh
+```
+
+The test runner automatically cleans old temporary outputs from:
+
+```text
+ground/test/test_runs/
+```
+
+before starting new integration tests.
 
 ## Recommended Next Reading
 

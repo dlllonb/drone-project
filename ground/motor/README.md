@@ -246,6 +246,59 @@ That means:
 For this reason, the motor subsystem should generally be treated as **hardware-coupled code**, not a fully portable software-only module.
 
 ---
+---
+
+## Testing
+
+The motor and encoder subsystem is covered by the top-level test suite in `../test/`.
+
+Relevant tests include:
+
+### Integration tests
+- `Encoder + motor data collection`
+- `Encoder timestamps`
+- `Camera-to-image pipeline`
+- `End-to-end pipeline`
+- `Multi-run pipeline`
+
+These tests verify that:
+
+- the motor control stack launches correctly
+- the encoder logger produces valid `.pkl` outputs
+- encoder timestamps increase monotonically
+- encoder counts change approximately linearly with time during rotation
+- encoder outputs integrate correctly with the acquisition and processing pipeline
+
+### Manual hardware tests
+
+The helper script:
+
+```bash
+motor/scripts/motor_test.sh
+```
+
+can be used for quick manual validation of:
+
+- motor direction control
+- start/stop behavior
+- GPIO and pigpio communication
+
+This script physically moves the motor and should only be run when the hardware is in a safe state.
+
+### Running tests
+
+From `ground/`:
+
+```bash
+bash test/run_integration_tests.sh
+```
+
+Because the motor subsystem is hardware-coupled, these tests should ideally be run:
+
+- after hardware modifications
+- after GPIO or pigpio changes
+- after encoder register/configuration updates
+- before observing sessions
 
 ## Recommended Next Reading
 

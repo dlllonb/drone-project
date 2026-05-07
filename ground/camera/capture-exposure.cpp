@@ -1,3 +1,44 @@
+/*
+ * capture-exposure.cpp
+ * ====================
+ *
+ * Purpose
+ * -------
+ * Takes a single exposure with the connected ZWO ASI camera and writes the
+ * raw camera frame to a timestamped `.bin` file.
+ *
+ * This program is primarily a camera-subsystem debugging and validation tool.
+ * The normal polarimeter observing workflow uses `capture-continuous.cpp`
+ * through `readout/continuous-capture.sh`, but this single-exposure program is
+ * useful for confirming camera connectivity, exposure settings, and raw file
+ * output before running a longer acquisition.
+ *
+ * Inputs
+ * ------
+ * Optional command-line arguments:
+ *
+ *   --exposure-time <seconds>
+ *       Exposure duration in seconds. Default: 20.0
+ *
+ *   --gain <value>
+ *       Camera gain setting. Default: 0
+ *
+ * Outputs
+ * -------
+ * Writes one raw binary image file in the current working directory:
+ *
+ *   exposure-YYYYMMDD-HHMMSS-mmm.bin
+ *
+ * The timestamp in the filename is generated in UTC. The raw binary data is
+ * written directly from the camera buffer and must be interpreted downstream
+ * using the camera dimensions and bit depth.
+ *
+ * Build
+ * -----
+ * Built by the camera subsystem Makefile. From `ground/`, run:
+ *
+ *   make
+ */
 #include <iostream>
 #include <fstream>
 #include <vector>

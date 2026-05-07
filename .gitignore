@@ -1,3 +1,8 @@
+# Python
+__pycache__/
+.pytest_cache/
+*.pyc
+
 # Compile files
 *.o
 *.out
@@ -6,6 +11,7 @@
 *.fits
 *.bin
 *.pkl
+*.gif
 
 # Log files
 *.log
@@ -17,6 +23,9 @@ processed/
 # Jupyter notebook checkpoints
 .ipynb_checkpoints/
 
+# Integration test outputs
+ground/test/test_runs/
+
 # Hiding my Gmail API key
 ground/ip_check/.env
 ground/ip_check/ip_check.log
@@ -25,3 +34,9 @@ ground/ip_check/ip_address.txt
 # Local vendor deps (keep locally, don't commit)
 ground/motor/pigpio/
 ground/motor/pigpio-master/
+
+# Generated acquisition data
+exposures-*/
+campaign-*/
+saved-data/
+test/test_runs/
