@@ -44,9 +44,9 @@
 # The encoder subsystem depends on the Raspberry Pi hardware
 # environment and associated GPIO / serial libraries.
 # ==========================================================
-.PHONY: all camera encoder clean camera-clean encoder-clean
+.PHONY: all camera encoder readout clean camera-clean encoder-clean readout-clean
 
-all: camera encoder
+all: camera encoder readout
 
 camera:
 	$(MAKE) -C camera
@@ -54,10 +54,16 @@ camera:
 encoder:
 	$(MAKE) -C motor/quad_enc
 
-clean: camera-clean encoder-clean
+readout:
+	$(MAKE) -C readout
+
+clean: camera-clean encoder-clean readout-clean
 
 camera-clean:
 	$(MAKE) -C camera clean
 
 encoder-clean:
 	$(MAKE) -C motor/quad_enc clean
+
+readout-clean:
+	$(MAKE) -C readout clean
